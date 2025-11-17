@@ -283,7 +283,12 @@ class _MapScreenState extends State<MapScreen> {
                       : location.longitude,
                 ),
               ),
-              padding: const EdgeInsets.all(100),
+              padding: const EdgeInsets.only(
+                top: 120, // Account for search bar
+                bottom: 80, // Account for floating action buttons
+                left: 20,
+                right: 20,
+              ),
             ),
           );
         }
@@ -342,7 +347,12 @@ class _MapScreenState extends State<MapScreen> {
                       : location.longitude,
                 ),
               ),
-              padding: const EdgeInsets.all(100),
+              padding: const EdgeInsets.only(
+                top: 120, // Account for search bar
+                bottom: 80, // Account for floating action buttons
+                left: 20,
+                right: 20,
+              ),
             ),
           );
         }
@@ -417,7 +427,15 @@ class _MapScreenState extends State<MapScreen> {
     final bounds = LatLngBounds(southwest: southwest, northeast: northeast);
     
     controller.animateCamera(
-      CameraUpdate.newLatLngBounds(bounds, 100), // 100 pixels padding
+      CameraUpdate.newLatLngBounds(
+        bounds,
+        EdgeInsets.only(
+          top: 120, // Account for search bar
+          bottom: 80, // Account for floating action buttons
+          left: 20,
+          right: 20,
+        ),
+      ),
     );
   }
 
