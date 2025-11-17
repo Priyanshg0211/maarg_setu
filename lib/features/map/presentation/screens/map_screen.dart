@@ -344,7 +344,21 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     }
 
     try {
-      final suggestions = await _geocodingService.searchPlaces(query);
+      // Get current location for location bias (better results like Google Maps)
+      LatLng? currentLocation;
+      if (_currentLocation != null) {
+        currentLocation = LatLng(
+          _currentLocation!.latitude!,
+          _currentLocation!.longitude!,
+        );
+      }
+      
+      final suggestions = await _geocodingService.searchPlaces(
+        query,
+        location: currentLocation,
+        radius: 50000, // 50km radius
+      );
+      
       setState(() {
         _searchSuggestions = suggestions;
       });
@@ -364,10 +378,44 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     try {
       final location = await _geocodingService.geocodeAddress(address);
       if (location != null) {
+        // Immediately show the location on map
         setState(() {
           _dropLocation = location;
+          _dropLocationAddress = address;
         });
+        
+        // Add a temporary preview marker first
+        _markers.removeWhere((marker) => marker.markerId.value == 'dropLocation');
+        _markers.add(
+          Marker(
+            markerId: const MarkerId('dropLocation'),
+            position: location,
+            infoWindow: InfoWindow(
+              title: 'Destination',
+              snippet: address,
+            ),
+            icon: BitmapDescriptor.defaultMarkerWithHue(
+              BitmapDescriptor.hueRed,
+            ),
+            anchor: const Offset(0.5, 1.0),
+          ),
+        );
+        
+        // Center camera on the selected location
+        final controller = await _controller.future;
+        await controller.animateCamera(
+          CameraUpdate.newCameraPosition(
+            CameraPosition(
+              target: location,
+              zoom: 16.0,
+            ),
+          ),
+        );
+        
+        // Now snap to road and update marker
         await _addDropLocationMarker(location);
+        
+        // Fetch route
         _fetchRoute(showAlternatives: true);
       } else {
         _showSnackBar('Could not find the address. Please try again.');
@@ -392,12 +440,49 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     });
 
     try {
-      final location = await _geocodingService.getPlaceDetails(placeId);
-      if (location != null) {
+      final placeDetails = await _geocodingService.getPlaceDetails(placeId);
+      if (placeDetails != null) {
+        final location = placeDetails['location'] as LatLng;
+        final address = placeDetails['address'] as String? ?? description;
+        
+        // Immediately show the location on map (like Google Maps)
         setState(() {
           _dropLocation = location;
+          _dropLocationAddress = address;
         });
+        
+        // Add a temporary preview marker first
+        _markers.removeWhere((marker) => marker.markerId.value == 'dropLocation');
+        _markers.add(
+          Marker(
+            markerId: const MarkerId('dropLocation'),
+            position: location,
+            infoWindow: InfoWindow(
+              title: placeDetails['name'] as String? ?? 'Destination',
+              snippet: address,
+            ),
+            icon: BitmapDescriptor.defaultMarkerWithHue(
+              BitmapDescriptor.hueRed,
+            ),
+            anchor: const Offset(0.5, 1.0),
+          ),
+        );
+        
+        // Center camera on the selected location
+        final controller = await _controller.future;
+        await controller.animateCamera(
+          CameraUpdate.newCameraPosition(
+            CameraPosition(
+              target: location,
+              zoom: 16.0, // Good zoom level to see the location
+            ),
+          ),
+        );
+        
+        // Now snap to road and update marker
         await _addDropLocationMarker(location);
+        
+        // Fetch route
         _fetchRoute(showAlternatives: true);
       } else {
         _showSnackBar('Could not find the place. Please try again.');
@@ -774,13 +859,46 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                                           const Icon(
                                             Icons.location_on,
                                             color: Colors.red,
-                                            size: 20,
+                                            size: 24,
                                           ),
                                           const SizedBox(width: 12),
                                           Expanded(
-                                            child: Text(
-                                              suggestion['description'] as String,
-                                              style: const TextStyle(fontSize: 14),
+                                            child: Column(
+                                              crossAxisAlignment: CrossAxisAlignment.start,
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                // Main text (like Google Maps)
+                                                if (suggestion['structured_formatting'] != null)
+                                                  Text(
+                                                    (suggestion['structured_formatting'] as Map<String, dynamic>)['main_text'] as String? ?? 
+                                                    suggestion['description'] as String,
+                                                    style: const TextStyle(
+                                                      fontSize: 15,
+                                                      fontWeight: FontWeight.w500,
+                                                      color: Colors.black87,
+                                                    ),
+                                                  )
+                                                else
+                                                  Text(
+                                                    suggestion['description'] as String,
+                                                    style: const TextStyle(
+                                                      fontSize: 15,
+                                                      fontWeight: FontWeight.w500,
+                                                      color: Colors.black87,
+                                                    ),
+                                                  ),
+                                                // Secondary text (like Google Maps)
+                                                if (suggestion['structured_formatting'] != null)
+                                                  Text(
+                                                    (suggestion['structured_formatting'] as Map<String, dynamic>)['secondary_text'] as String? ?? '',
+                                                    style: TextStyle(
+                                                      fontSize: 13,
+                                                      color: Colors.grey[600],
+                                                    ),
+                                                    maxLines: 1,
+                                                    overflow: TextOverflow.ellipsis,
+                                                  ),
+                                              ],
                                             ),
                                           ),
                                         ],

@@ -41,17 +41,27 @@ class GeocodingService {
     }
   }
 
-  Future<List<Map<String, dynamic>>> searchPlaces(String query) async {
+  Future<List<Map<String, dynamic>>> searchPlaces(
+    String query, {
+    LatLng? location,
+    double? radius,
+  }) async {
     try {
       final encodedQuery = Uri.encodeComponent(query);
-      final url = Uri.parse(
-        'https://maps.googleapis.com/maps/api/place/autocomplete/json'
-        '?input=$encodedQuery'
-        '&key=${MapConstants.googleMapsApiKey}'
-        '&types=geocode',
-      );
+      String url = 'https://maps.googleapis.com/maps/api/place/autocomplete/json'
+          '?input=$encodedQuery'
+          '&key=${MapConstants.googleMapsApiKey}';
+      
+      // Add location bias for better results (like Google Maps)
+      if (location != null) {
+        url += '&location=${location.latitude},${location.longitude}';
+        url += '&radius=${radius ?? 50000}'; // 50km default radius
+      }
+      
+      // Include establishments and addresses
+      url += '&types=(geocode|establishment)';
 
-      final response = await http.get(url);
+      final response = await http.get(Uri.parse(url));
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body) as Map<String, dynamic>;
@@ -59,11 +69,17 @@ class GeocodingService {
         if (data['status'] == 'OK' && data['predictions'] != null) {
           final predictions = data['predictions'] as List;
           return predictions
-              .map((prediction) => {
-                    'description': (prediction as Map<String, dynamic>)['description'] as String,
-                    'place_id': prediction['place_id'] as String,
-                  })
+              .map((prediction) {
+                final pred = prediction as Map<String, dynamic>;
+                return {
+                  'description': pred['description'] as String,
+                  'place_id': pred['place_id'] as String,
+                  'structured_formatting': pred['structured_formatting'] as Map<String, dynamic>?,
+                };
+              })
               .toList();
+        } else if (data['status'] == 'ZERO_RESULTS') {
+          return [];
         }
       }
       return [];
@@ -73,13 +89,13 @@ class GeocodingService {
     }
   }
 
-  Future<LatLng?> getPlaceDetails(String placeId) async {
+  Future<Map<String, dynamic>?> getPlaceDetails(String placeId) async {
     try {
       final url = Uri.parse(
         'https://maps.googleapis.com/maps/api/place/details/json'
         '?place_id=$placeId'
         '&key=${MapConstants.googleMapsApiKey}'
-        '&fields=geometry',
+        '&fields=geometry,name,formatted_address,vicinity',
       );
 
       final response = await http.get(url);
@@ -95,7 +111,11 @@ class GeocodingService {
           final lat = location['lat'] as double;
           final lng = location['lng'] as double;
           
-          return LatLng(lat, lng);
+          return {
+            'location': LatLng(lat, lng),
+            'name': result['name'] as String? ?? '',
+            'address': result['formatted_address'] as String? ?? result['vicinity'] as String? ?? '',
+          };
         }
       }
       return null;
@@ -103,6 +123,12 @@ class GeocodingService {
       print('Error getting place details: $e');
       return null;
     }
+  }
+
+  // Legacy method for backward compatibility
+  Future<LatLng?> getPlaceLocation(String placeId) async {
+    final details = await getPlaceDetails(placeId);
+    return details?['location'] as LatLng?;
   }
 
   // Reverse geocoding: Get address from coordinates
