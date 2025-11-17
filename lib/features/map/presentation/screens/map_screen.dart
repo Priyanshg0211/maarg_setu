@@ -229,11 +229,35 @@ class _MapScreenState extends State<MapScreen> {
     );
   }
 
+  Future<void> _fitRoute() async {
+    if (_currentLocation == null || _dropLocation == null) return;
+
+    final currentLat = _currentLocation!.latitude;
+    final currentLng = _currentLocation!.longitude;
+    if (currentLat == null || currentLng == null) return;
+
+    final controller = await _controller.future;
+    
+    // Create bounds that include both current location and drop location
+    final southwest = LatLng(
+      currentLat < _dropLocation!.latitude ? currentLat : _dropLocation!.latitude,
+      currentLng < _dropLocation!.longitude ? currentLng : _dropLocation!.longitude,
+    );
+    final northeast = LatLng(
+      currentLat > _dropLocation!.latitude ? currentLat : _dropLocation!.latitude,
+      currentLng > _dropLocation!.longitude ? currentLng : _dropLocation!.longitude,
+    );
+
+    final bounds = LatLngBounds(southwest: southwest, northeast: northeast);
+    
+    controller.animateCamera(
+      CameraUpdate.newLatLngBounds(bounds, 100), // 100 pixels padding
+    );
+  }
+
   void _showSnackBar(String message) {
     if (!mounted) return;
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text(message)));
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
   }
 
   @override
@@ -315,34 +339,7 @@ class _MapScreenState extends State<MapScreen> {
                   Padding(
                     padding: const EdgeInsets.only(bottom: 10),
                     child: FloatingActionButton(
-                      onPressed: () {
-                        final controller = _controller.future;
-                        controller.then((ctrl) {
-                          ctrl.animateCamera(
-                            CameraUpdate.newLatLngBounds(
-                              LatLngBounds(
-                                southwest: LatLng(
-                                  _currentLocation!.latitude! < _dropLocation!.latitude
-                                      ? _currentLocation!.latitude!
-                                      : _dropLocation!.latitude,
-                                  _currentLocation!.longitude! < _dropLocation!.longitude
-                                      ? _currentLocation!.longitude!
-                                      : _dropLocation!.longitude,
-                                ),
-                                northeast: LatLng(
-                                  _currentLocation!.latitude! > _dropLocation!.latitude
-                                      ? _currentLocation!.latitude!
-                                      : _dropLocation!.latitude,
-                                  _currentLocation!.longitude! > _dropLocation!.longitude
-                                      ? _currentLocation!.longitude!
-                                      : _dropLocation!.longitude,
-                                ),
-                              ),
-                              padding: const EdgeInsets.all(100),
-                            ),
-                          );
-                        });
-                      },
+                      onPressed: _fitRoute,
                       backgroundColor: Colors.green,
                       child: const Icon(Icons.fit_screen),
                       tooltip: 'Fit Route',
