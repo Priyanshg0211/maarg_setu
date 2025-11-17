@@ -11,6 +11,7 @@ import '../../../../core/constants/map_constants.dart';
 import '../../services/location_service.dart';
 import '../../services/directions_service.dart';
 import '../../services/geocoding_service.dart';
+import '../../../../features/auth/services/auth_service.dart';
 
 class MapScreen extends StatefulWidget {
   const MapScreen({super.key});
@@ -24,6 +25,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
   final LocationService _locationService = LocationService();
   final DirectionsService _directionsService = DirectionsService();
   final GeocodingService _geocodingService = GeocodingService();
+  final AuthService _authService = AuthService();
   final TextEditingController _destinationController = TextEditingController();
   final FocusNode _destinationFocusNode = FocusNode();
 
@@ -1359,6 +1361,44 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                 padding: const EdgeInsets.all(16.0),
                 child: Column(
                   children: [
+                    // Sign out button
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        Container(
+                          decoration: BoxDecoration(
+                            color: Colors.blue[700],
+                            shape: BoxShape.circle,
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withOpacity(0.2),
+                                blurRadius: 4,
+                                offset: const Offset(0, 2),
+                              ),
+                            ],
+                          ),
+                          child: IconButton(
+                            icon: const Icon(Icons.logout, color: Colors.white),
+                            onPressed: () async {
+                              try {
+                                await _authService.signOut();
+                              } catch (e) {
+                                if (mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: Text('Error signing out: ${e.toString()}'),
+                                      backgroundColor: Colors.red,
+                                    ),
+                                  );
+                                }
+                              }
+                            },
+                            tooltip: 'Sign out',
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
                     Container(
                       decoration: BoxDecoration(
                         color: Colors.white,

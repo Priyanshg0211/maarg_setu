@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import '../features/map/presentation/screens/map_screen.dart';
+import '../features/auth/presentation/widgets/auth_wrapper.dart';
 
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
@@ -10,7 +10,7 @@ class MyApp extends StatelessWidget {
     return MaterialApp(
       title: 'Google Maps',
       theme: ThemeData(primarySwatch: Colors.blue),
-      home: const MapScreen(),
+      home: const AuthWrapper(),
       debugShowCheckedModeBanner: false,
     );
   }
