@@ -5,7 +5,14 @@ class MapConstants {
   static const double radarRadius = 2500.0;
   static const double defaultZoom = 15.0;
   
-  // Google Maps API Key - Used for Places API, Geocoding API, and Directions API
+  // IMPORTANT: For production, move this to environment variables
+  // and use proper API key restrictions in Google Cloud Console
+  // Current key should have these APIs enabled:
+  // 1. Maps SDK for Android
+  // 2. Maps SDK for iOS
+  // 3. Directions API
+  // 4. Places API
+  // 5. Geocoding API
   static const String googleMapsApiKey = 'AIzaSyCK7_NvFvexUKYaNeDalhmFiNHN5wcOnyI';
   
   // API URLs
@@ -13,4 +20,11 @@ class MapConstants {
   static const String geocodingApiUrl = 'https://maps.googleapis.com/maps/api/geocode/json';
   static const String placesAutocompleteApiUrl = 'https://maps.googleapis.com/maps/api/place/autocomplete/json';
   static const String placeDetailsApiUrl = 'https://maps.googleapis.com/maps/api/place/details/json';
+  
+  // Timeout settings for API calls
+  static const Duration apiTimeout = Duration(seconds: 30);
+  
+  // Retry settings
+  static const int maxRetries = 3;
+  static const Duration retryDelay = Duration(seconds: 2);
 }
