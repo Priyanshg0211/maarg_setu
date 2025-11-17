@@ -11,6 +11,7 @@ import '../../../../core/constants/map_constants.dart';
 import '../../services/location_service.dart';
 import '../../services/directions_service.dart';
 import '../../services/geocoding_service.dart';
+import '../../services/traffic_service.dart';
 import '../../../../features/auth/services/auth_service.dart';
 
 class MapScreen extends StatefulWidget {
@@ -25,6 +26,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
   final LocationService _locationService = LocationService();
   final DirectionsService _directionsService = DirectionsService();
   final GeocodingService _geocodingService = GeocodingService();
+  final TrafficService _trafficService = TrafficService();
   final AuthService _authService = AuthService();
   final TextEditingController _destinationController = TextEditingController();
   final FocusNode _destinationFocusNode = FocusNode();
@@ -58,6 +60,13 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
   final Set<Polyline> _polylines = {};
   final Set<Polygon> _polygons = {}; // For route polygon visualization
   
+  // Traffic heatmap data
+  List<TrafficDataPoint> _trafficDataPoints = [];
+  bool _showTrafficHeatmap = true;
+  bool _isLoadingTraffic = false;
+  Timer? _trafficUpdateTimer;
+  LatLng? _lastTrafficUpdateLocation;
+  
   AnimationController? _markerAnimationController;
   LatLng? _previousLocation;
   
@@ -83,6 +92,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     _markerAnimationController?.dispose();
     _searchDebounceTimer?.cancel();
     _routeUpdateTimer?.cancel();
+    _trafficUpdateTimer?.cancel();
     super.dispose();
   }
 
@@ -895,6 +905,148 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
           strokeWidth: 1,
         ),
       );
+    
+    // Update traffic heatmap when location changes
+    if (_showTrafficHeatmap) {
+      _updateTrafficHeatmap(LatLng(latitude, longitude));
+    }
+  }
+
+  /// Update traffic heatmap within 2km range
+  /// Uses debouncing to avoid excessive API calls
+  void _updateTrafficHeatmap(LatLng center) {
+    // Cancel previous timer
+    _trafficUpdateTimer?.cancel();
+    
+    // Check if location has changed significantly (more than 200m)
+    if (_lastTrafficUpdateLocation != null) {
+      final distance = _calculateDistance(_lastTrafficUpdateLocation!, center);
+      if (distance < 200) {
+        // Location hasn't changed much, skip update
+        return;
+      }
+    }
+    
+    // Debounce: wait 2 seconds after location stops changing
+    _trafficUpdateTimer = Timer(const Duration(seconds: 2), () {
+      _fetchTrafficData(center);
+    });
+  }
+  
+  /// Actually fetch traffic data
+  Future<void> _fetchTrafficData(LatLng center) async {
+    if (_isLoadingTraffic || !_showTrafficHeatmap) return;
+    
+    setState(() {
+      _isLoadingTraffic = true;
+      _lastTrafficUpdateLocation = center;
+    });
+
+    try {
+      // Get traffic data within 2km radius
+      final trafficPoints = await _trafficService.getTrafficDataInRadius(
+        center: center,
+        radiusMeters: MapConstants.radarRadius,
+      );
+
+      if (mounted) {
+        setState(() {
+          _trafficDataPoints = trafficPoints;
+          _isLoadingTraffic = false;
+        });
+
+        // Update circles for traffic heatmap visualization
+        _updateTrafficCircles();
+      }
+    } catch (e) {
+      print('Error updating traffic heatmap: $e');
+      if (mounted) {
+        setState(() {
+          _isLoadingTraffic = false;
+        });
+      }
+    }
+  }
+
+  /// Update circles to show traffic heatmap
+  void _updateTrafficCircles() {
+    // Remove existing traffic circles (but keep radar circle)
+    _circles.removeWhere((circle) => circle.circleId.value.startsWith('traffic_'));
+    
+    if (!_showTrafficHeatmap || _trafficDataPoints.isEmpty) {
+      setState(() {});
+      return;
+    }
+
+    // Add circles for each traffic data point
+    for (int i = 0; i < _trafficDataPoints.length; i++) {
+      final point = _trafficDataPoints[i];
+      final color = TrafficService.getTrafficColor(point.intensity);
+      
+      _circles.add(
+        Circle(
+          circleId: CircleId('traffic_$i'),
+          center: point.location,
+          radius: 150, // 150m radius for each traffic point
+          fillColor: color,
+          strokeColor: color.withOpacity(0.8),
+          strokeWidth: 0,
+          zIndex: 0, // Behind other elements
+        ),
+      );
+    }
+    
+    setState(() {});
+  }
+  
+  /// Toggle traffic heatmap visibility
+  void _toggleTrafficHeatmap() {
+    setState(() {
+      _showTrafficHeatmap = !_showTrafficHeatmap;
+    });
+    
+    if (_showTrafficHeatmap && _currentLocation != null) {
+      final lat = _currentLocation!.latitude;
+      final lng = _currentLocation!.longitude;
+      if (lat != null && lng != null) {
+        // Fetch immediately when toggling on
+        _fetchTrafficData(LatLng(lat, lng));
+      }
+    } else {
+      _updateTrafficCircles(); // This will clear traffic circles
+    }
+  }
+  
+  /// Get average traffic intensity in the area
+  TrafficIntensity? _getAverageTrafficIntensity() {
+    if (_trafficDataPoints.isEmpty) return null;
+    
+    int totalIntensity = 0;
+    for (final point in _trafficDataPoints) {
+      totalIntensity += point.intensity.index;
+    }
+    
+    final avgIndex = (totalIntensity / _trafficDataPoints.length).round();
+    return TrafficIntensity.values[avgIndex.clamp(0, TrafficIntensity.values.length - 1)];
+  }
+  
+  /// Get traffic status text
+  String _getTrafficStatusText() {
+    final intensity = _getAverageTrafficIntensity();
+    if (intensity == null) return 'No Data';
+    
+    switch (intensity) {
+      case TrafficIntensity.none:
+        return 'Clear';
+      case TrafficIntensity.light:
+        return 'Light';
+      case TrafficIntensity.moderate:
+        return 'Moderate';
+      case TrafficIntensity.heavy:
+        return 'Heavy';
+      case TrafficIntensity.severe:
+        return 'Severe';
+    }
   }
 
   Future<void> _moveCameraToLocation(
@@ -1339,6 +1491,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
             circles: _circles,
             polylines: _polylines,
             polygons: _polygons,
+            trafficEnabled: true, // Enable Google Maps traffic layer
             myLocationEnabled: !_isNavigating, // Disable default during navigation
             myLocationButtonEnabled: false,
             zoomControlsEnabled: false,
@@ -1984,6 +2137,121 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                           ],
                         ),
                       ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+
+          // Traffic Heatmap Toggle & Status
+          if (!_isNavigating && _currentLocation != null)
+            Positioned(
+              left: 16,
+              bottom: _routeDetails != null ? 200 : 16,
+              child: SafeArea(
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(12),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.15),
+                        blurRadius: 10,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      // Traffic Status Indicator
+                      if (_trafficDataPoints.isNotEmpty)
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                          decoration: BoxDecoration(
+                            color: _getAverageTrafficIntensity() != null
+                                ? TrafficService.getTrafficColor(_getAverageTrafficIntensity()!)
+                                : Colors.grey.withOpacity(0.1),
+                            borderRadius: const BorderRadius.only(
+                              topLeft: Radius.circular(12),
+                              topRight: Radius.circular(12),
+                            ),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                Icons.traffic,
+                                size: 18,
+                                color: _getAverageTrafficIntensity() != null &&
+                                        _getAverageTrafficIntensity()!.index > 1
+                                    ? Colors.white
+                                    : Colors.black87,
+                              ),
+                              const SizedBox(width: 6),
+                              Text(
+                                _getTrafficStatusText(),
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                  color: _getAverageTrafficIntensity() != null &&
+                                          _getAverageTrafficIntensity()!.index > 1
+                                      ? Colors.white
+                                      : Colors.black87,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      // Toggle Button
+                      Material(
+                        color: Colors.transparent,
+                        child: InkWell(
+                          onTap: _toggleTrafficHeatmap,
+                          borderRadius: BorderRadius.circular(12),
+                          child: Container(
+                            padding: const EdgeInsets.all(12),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  _showTrafficHeatmap
+                                      ? Icons.layers
+                                      : Icons.layers_outlined,
+                                  size: 20,
+                                  color: _showTrafficHeatmap
+                                      ? Colors.blue
+                                      : Colors.grey,
+                                ),
+                                const SizedBox(width: 8),
+                                Text(
+                                  _showTrafficHeatmap ? 'Hide Traffic' : 'Show Traffic',
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w500,
+                                    color: _showTrafficHeatmap
+                                        ? Colors.blue
+                                        : Colors.grey[700],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                      // Loading indicator
+                      if (_isLoadingTraffic)
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                          child: const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              valueColor: AlwaysStoppedAnimation<Color>(Colors.blue),
+                            ),
+                          ),
+                        ),
                     ],
                   ),
                 ),
