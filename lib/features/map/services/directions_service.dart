@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math' as math;
 import 'package:http/http.dart' as http;
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:google_polyline_algorithm/google_polyline_algorithm.dart';
@@ -83,12 +84,74 @@ class DirectionsService {
         }
       } else {
         print('HTTP error: ${response.statusCode} - ${response.body}');
-        return [];
+        // Fallback: Create a simple route with straight line
+        return _createFallbackRoute(origin, destination);
       }
     } catch (e) {
       print('Error getting directions: $e');
-      return [];
+      // Fallback: Create a simple route with straight line
+      return _createFallbackRoute(origin, destination);
     }
+  }
+
+  // Create a fallback route when API fails - always show a path
+  List<RouteDetails> _createFallbackRoute(LatLng origin, LatLng destination) {
+    // Create a simple straight line path
+    final fallbackPoints = _createInterpolatedPath(origin, destination);
+    final distance = _calculateDistance(origin, destination);
+    
+    return [
+      RouteDetails(
+        points: fallbackPoints,
+        distance: _formatDistance(distance.round()),
+        duration: _formatDuration((distance / 13.9).round()), // Estimate based on average speed
+        distanceValue: distance.round().toString(),
+        durationValue: (distance / 13.9).round(),
+        steps: [
+          NavigationStep(
+            instruction: 'Go straight to destination',
+            distance: _formatDistance(distance.round()),
+            duration: _formatDuration((distance / 13.9).round()),
+            location: destination,
+            maneuver: 'straight',
+            stepNumber: 0,
+          ),
+        ],
+        summary: 'Direct route',
+      ),
+    ];
+  }
+
+  // Create an interpolated path between two points for better visualization
+  List<LatLng> _createInterpolatedPath(LatLng origin, LatLng destination) {
+    List<LatLng> points = [origin];
+    const int segments = 50; // Number of intermediate points
+    
+    for (int i = 1; i < segments; i++) {
+      final ratio = i / segments;
+      final lat = origin.latitude + (destination.latitude - origin.latitude) * ratio;
+      final lng = origin.longitude + (destination.longitude - origin.longitude) * ratio;
+      points.add(LatLng(lat, lng));
+    }
+    
+    points.add(destination);
+    return points;
+  }
+
+  // Calculate distance between two points in meters
+  double _calculateDistance(LatLng point1, LatLng point2) {
+    const double earthRadius = 6371000; // meters
+    final lat1Rad = point1.latitude * math.pi / 180;
+    final lat2Rad = point2.latitude * math.pi / 180;
+    final deltaLatRad = (point2.latitude - point1.latitude) * math.pi / 180;
+    final deltaLngRad = (point2.longitude - point1.longitude) * math.pi / 180;
+    
+    final a = math.sin(deltaLatRad / 2) * math.sin(deltaLatRad / 2) +
+        math.cos(lat1Rad) * math.cos(lat2Rad) *
+        math.sin(deltaLngRad / 2) * math.sin(deltaLngRad / 2);
+    final c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a));
+    
+    return earthRadius * c;
   }
 
   RouteDetails? _parseRoute(Map<String, dynamic> route) {
@@ -130,7 +193,7 @@ class DirectionsService {
           final stepPolyline = stepData['polyline'] as Map<String, dynamic>;
           final polylineString = stepPolyline['points'] as String;
           
-          // Decode step polyline
+          // Decode step polyline using google_polyline_algorithm package
           final decodedPoints = decodePolyline(polylineString);
           if (decodedPoints.isNotEmpty) {
             final stepPoints = decodedPoints
@@ -175,8 +238,9 @@ class DirectionsService {
       } else {
         final overviewPolyline = route['overview_polyline'] as Map<String, dynamic>;
         final polyline = overviewPolyline['points'] as String;
-        final decodedPoints = decodePolyline(polyline);
         
+        // Decode overview polyline using google_polyline_algorithm package
+        final decodedPoints = decodePolyline(polyline);
         if (decodedPoints.isNotEmpty) {
           routePoints = decodedPoints
               .map((point) => LatLng(point[0].toDouble(), point[1].toDouble()))
@@ -184,7 +248,29 @@ class DirectionsService {
         }
       }
       
-      if (routePoints.isEmpty) return null;
+      // Always ensure we have at least a path - create fallback if empty
+      if (routePoints.isEmpty) {
+        // Get origin and destination from legs
+        if (legs.isNotEmpty) {
+          final firstLeg = legs[0] as Map<String, dynamic>;
+          final lastLeg = legs[legs.length - 1] as Map<String, dynamic>;
+          final startLocation = firstLeg['start_location'] as Map<String, dynamic>;
+          final endLocation = lastLeg['end_location'] as Map<String, dynamic>;
+          
+          final origin = LatLng(
+            startLocation['lat'] as double,
+            startLocation['lng'] as double,
+          );
+          final dest = LatLng(
+            endLocation['lat'] as double,
+            endLocation['lng'] as double,
+          );
+          
+          routePoints = _createInterpolatedPath(origin, dest);
+        } else {
+          return null;
+        }
+      }
       
       // Use API-provided formatted text, or format if empty
       final totalDistance = distance.isNotEmpty ? distance : _formatDistance(int.parse(distanceValue));
