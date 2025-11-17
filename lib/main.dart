@@ -118,7 +118,7 @@ class _MapScreenState extends State<MapScreen> {
       Circle(
         circleId: const CircleId('radar'),
         center: LatLng(locationData.latitude!, locationData.longitude!),
-        radius: 250, // 250m radius = 500m diameter (500m x 500m coverage area)
+        radius: 2500, // 250m radius = 500m diameter (500m x 500m coverage area)
         fillColor: Colors.blue.withOpacity(0.2),
         strokeColor: Colors.blue,
         strokeWidth: 2,
