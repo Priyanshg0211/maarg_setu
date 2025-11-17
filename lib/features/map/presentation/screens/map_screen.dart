@@ -33,6 +33,8 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
   bool _isLoadingRoute = false;
   bool _isSnappingLocation = false;
   List<Map<String, dynamic>> _searchSuggestions = [];
+  bool _isSearching = false;
+  Timer? _searchDebounceTimer;
   RouteDetails? _routeDetails;
   List<RouteDetails> _alternativeRoutes = [];
   int _selectedRouteIndex = 0;
@@ -64,6 +66,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     _destinationController.dispose();
     _destinationFocusNode.dispose();
     _markerAnimationController?.dispose();
+    _searchDebounceTimer?.cancel();
     super.dispose();
   }
 
@@ -335,10 +338,44 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     _fetchRoute(showAlternatives: true);
   }
 
-  Future<void> _searchDestination(String query) async {
+  void _onSearchChanged(String query) {
+    // Cancel previous timer
+    _searchDebounceTimer?.cancel();
+    
+    if (query.isEmpty || query.trim().isEmpty) {
+      setState(() {
+        _searchSuggestions = [];
+        _isSearching = false;
+      });
+      return;
+    }
+
+    // Require at least 2 characters to search (reduces API calls)
+    if (query.trim().length < 2) {
+      setState(() {
+        _searchSuggestions = [];
+        _isSearching = false;
+      });
+      return;
+    }
+
+    // Set loading state
+    setState(() {
+      _isSearching = true;
+      _searchSuggestions = []; // Clear previous results while searching
+    });
+
+    // Debounce search - wait 500ms after user stops typing
+    _searchDebounceTimer = Timer(const Duration(milliseconds: 500), () {
+      _performSearch(query.trim());
+    });
+  }
+
+  Future<void> _performSearch(String query) async {
     if (query.isEmpty) {
       setState(() {
         _searchSuggestions = [];
+        _isSearching = false;
       });
       return;
     }
@@ -359,11 +396,21 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
         radius: 50000, // 50km radius
       );
       
-      setState(() {
-        _searchSuggestions = suggestions;
-      });
+      // Only update if the query hasn't changed
+      if (mounted && _destinationController.text == query) {
+        setState(() {
+          _searchSuggestions = suggestions;
+          _isSearching = false;
+        });
+      }
     } catch (e) {
-      // Silently handle errors
+      print('Error in search: $e');
+      if (mounted) {
+        setState(() {
+          _searchSuggestions = [];
+          _isSearching = false;
+        });
+      }
     }
   }
 
@@ -432,11 +479,15 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
   }
 
   Future<void> _setDestinationFromPlaceId(String placeId, String description) async {
+    // Cancel any pending search
+    _searchDebounceTimer?.cancel();
+    
     setState(() {
       _isLoadingRoute = true;
       _destinationController.text = description;
       _destinationFocusNode.unfocus();
       _searchSuggestions = [];
+      _isSearching = false;
     });
 
     try {
@@ -803,13 +854,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                                     contentPadding: EdgeInsets.symmetric(vertical: 16),
                                   ),
                                   onChanged: (value) {
-                                    if (value.isNotEmpty) {
-                                      _searchDestination(value);
-                                    } else {
-                                      setState(() {
-                                        _searchSuggestions = [];
-                                      });
-                                    }
+                                    _onSearchChanged(value);
                                   },
                                   onSubmitted: (value) {
                                     if (value.isNotEmpty) {
@@ -829,7 +874,27 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                                 ),
                             ],
                           ),
-                          if (_searchSuggestions.isNotEmpty)
+                          if (_isSearching)
+                            Container(
+                              padding: const EdgeInsets.all(16),
+                              decoration: const BoxDecoration(
+                                border: Border(
+                                  top: BorderSide(color: Colors.grey, width: 0.5),
+                                ),
+                              ),
+                              child: const Row(
+                                children: [
+                                  SizedBox(
+                                    width: 20,
+                                    height: 20,
+                                    child: CircularProgressIndicator(strokeWidth: 2),
+                                  ),
+                                  SizedBox(width: 16),
+                                  Text('Searching...', style: TextStyle(color: Colors.grey)),
+                                ],
+                              ),
+                            ),
+                          if (_searchSuggestions.isNotEmpty && !_isSearching)
                             Container(
                               constraints: const BoxConstraints(maxHeight: 200),
                               decoration: const BoxDecoration(

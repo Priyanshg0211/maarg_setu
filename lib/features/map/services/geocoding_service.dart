@@ -51,11 +51,11 @@ class GeocodingService {
     double? radius,
   }) async {
     try {
-      if (query.isEmpty) {
+      if (query.isEmpty || query.trim().isEmpty) {
         return [];
       }
 
-      final encodedQuery = Uri.encodeComponent(query);
+      final encodedQuery = Uri.encodeComponent(query.trim());
       String url = '${MapConstants.placesAutocompleteApiUrl}'
           '?input=$encodedQuery'
           '&key=${MapConstants.googleMapsApiKey}';
@@ -66,16 +66,25 @@ class GeocodingService {
         url += '&radius=${radius ?? 50000}'; // 50km default radius
       }
       
-      // Include establishments and addresses
-      url += '&types=(geocode|establishment)';
+      // Use types parameter correctly - separate with pipe, no parentheses
+      // This searches for both addresses (geocode) and establishments (places)
+      url += '&types=geocode|establishment';
+
+      print('Places API URL: $url'); // Debug log
 
       final response = await http.get(Uri.parse(url));
+
+      print('Places API Response Status: ${response.statusCode}'); // Debug log
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body) as Map<String, dynamic>;
         
+        print('Places API Response: ${data['status']}'); // Debug log
+        
         if (data['status'] == 'OK' && data['predictions'] != null) {
           final predictions = data['predictions'] as List;
+          print('Found ${predictions.length} predictions'); // Debug log
+          
           return predictions
               .map((prediction) {
                 final pred = prediction as Map<String, dynamic>;
@@ -87,17 +96,22 @@ class GeocodingService {
               })
               .toList();
         } else if (data['status'] == 'ZERO_RESULTS') {
+          print('No results found for query: $query');
           return [];
         } else {
-          print('Places API Autocomplete error: ${data['status']} - ${data['error_message'] ?? 'Unknown error'}');
+          final errorMsg = data['error_message'] ?? 'Unknown error';
+          print('Places API Autocomplete error: ${data['status']} - $errorMsg');
+          print('Response body: ${response.body}'); // Debug log
           return [];
         }
       } else {
         print('HTTP error: ${response.statusCode}');
+        print('Response body: ${response.body}'); // Debug log
         return [];
       }
-    } catch (e) {
+    } catch (e, stackTrace) {
       print('Error searching places: $e');
+      print('Stack trace: $stackTrace');
       return [];
     }
   }
