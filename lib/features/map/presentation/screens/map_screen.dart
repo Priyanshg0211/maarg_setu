@@ -45,7 +45,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
   
   // Real-time distance and ETA
   double? _realTimeDistance; // in meters
-  int? _realTimeETA; // in seconds
+// in seconds
   String _formattedDistance = '';
   String _formattedETA = '';
 
@@ -265,7 +265,6 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
       _polylines.clear();
       _searchSuggestions = [];
       _realTimeDistance = null;
-      _realTimeETA = null;
       _formattedDistance = '';
       _formattedETA = '';
     });
@@ -793,7 +792,6 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     if (_dropLocation == null) {
       setState(() {
         _realTimeDistance = null;
-        _realTimeETA = null;
         _formattedDistance = '';
         _formattedETA = '';
       });
@@ -813,7 +811,6 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
       
       setState(() {
         _realTimeDistance = remainingDistance;
-        _realTimeETA = remainingETA;
         _formattedDistance = _formatDistance(remainingDistance);
         _formattedETA = _formatDuration(remainingETA);
       });
@@ -825,7 +822,6 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
       
       setState(() {
         _realTimeDistance = straightDistance;
-        _realTimeETA = estimatedETA;
         _formattedDistance = _formatDistance(straightDistance);
         _formattedETA = _formatDuration(estimatedETA);
       });
