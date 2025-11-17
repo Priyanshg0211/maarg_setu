@@ -395,8 +395,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
           _alternativeRoutes = routes;
           _selectedRouteIndex = 0;
           _routeDetails = routes[0];
-          _updateRoutePolylines();
-          _fitRoute();
+          _updateRoutePolylines(); // This will display the path with enhanced styling
           
           // Update real-time distance and ETA with route data
           if (_currentLocation != null) {
@@ -409,6 +408,11 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
         }
         _isLoadingRoute = false;
       });
+      
+      // Show success message when route is found
+      if (routes.isNotEmpty) {
+        _showSnackBar('Route found! Path displayed on map.');
+      }
     } catch (e) {
       setState(() {
         _isLoadingRoute = false;
@@ -425,22 +429,41 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
       final route = _alternativeRoutes[i];
       final isSelected = i == _selectedRouteIndex;
       
-      // Add polyline for the route path
+      // Add polyline for the route path with Google Maps-like styling
       _polylines.add(
         Polyline(
           polylineId: PolylineId('route_$i'),
           points: route.points,
           color: isSelected 
-              ? const Color(0xFF4285F4) // Google Maps blue
-              : Colors.grey.withOpacity(0.5),
-          width: isSelected ? 6 : 4,
-          patterns: [],
+              ? const Color(0xFF4285F4) // Google Maps blue for selected route
+              : Colors.grey.withOpacity(0.4), // Lighter grey for alternatives
+          width: isSelected ? 8 : 5, // Thicker line for selected route
+          patterns: isSelected ? [] : [PatternItem.dash(20), PatternItem.gap(10)], // Dashed for alternatives
           geodesic: true,
           jointType: JointType.round,
           endCap: Cap.roundCap,
           startCap: Cap.roundCap,
+          zIndex: isSelected ? 2 : 1, // Selected route on top
         ),
       );
+      
+      // Add a subtle shadow/outline for the selected route (Google Maps style)
+      if (isSelected && route.points.length >= 2) {
+        _polylines.add(
+          Polyline(
+            polylineId: PolylineId('route_${i}_outline'),
+            points: route.points,
+            color: Colors.white.withOpacity(0.8),
+            width: 12, // Slightly wider for outline effect
+            patterns: [],
+            geodesic: true,
+            jointType: JointType.round,
+            endCap: Cap.roundCap,
+            startCap: Cap.roundCap,
+            zIndex: 0, // Behind the main route
+          ),
+        );
+      }
       
       // Add polygon around the route for visualization (only for selected route)
       if (isSelected && route.points.length >= 2) {
@@ -450,9 +473,9 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
             Polygon(
               polygonId: PolygonId('route_polygon_$i'),
               points: routePolygon,
-              fillColor: const Color(0xFF4285F4).withOpacity(0.15),
-              strokeColor: const Color(0xFF4285F4).withOpacity(0.3),
-              strokeWidth: 1,
+              fillColor: const Color(0xFF4285F4).withOpacity(0.1), // Subtle fill
+              strokeColor: Colors.transparent,
+              strokeWidth: 0,
               geodesic: true,
             ),
           );
@@ -573,7 +596,9 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
       _destinationController.clear();
     });
     await _addDropLocationMarker(position);
-    _fetchRoute(showAlternatives: true);
+    
+    // Automatically fetch and display the route path
+    await _fetchRoute(showAlternatives: true);
     
     // Update marker to show arrow pointing to drop location
     if (_currentLocation != null) {
@@ -588,6 +613,9 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
         _updateRealTimeDistanceAndETA(LatLng(currentLat, currentLng));
       }
     }
+    
+    // Smoothly animate camera to show the full path
+    await _animateToShowPath();
   }
 
   /// Handle search text changes with debouncing
@@ -723,8 +751,8 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
         // Now snap to road and update marker
         await _addDropLocationMarker(location);
         
-        // Fetch route
-        _fetchRoute(showAlternatives: true);
+        // Automatically fetch and display the route path
+        await _fetchRoute(showAlternatives: true);
         
         // Update marker to show arrow pointing to drop location
         if (_currentLocation != null) {
@@ -739,6 +767,9 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
             _updateRealTimeDistanceAndETA(LatLng(currentLat, currentLng));
           }
         }
+        
+        // Smoothly animate camera to show the full path
+        await _animateToShowPath();
       } else {
         _showSnackBar('Could not find the address. Please try again.');
         setState(() {
@@ -808,8 +839,8 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
         // Now snap to road and update marker
         await _addDropLocationMarker(location);
         
-        // Fetch route
-        _fetchRoute(showAlternatives: true);
+        // Automatically fetch and display the route path
+        await _fetchRoute(showAlternatives: true);
         
         // Update marker to show arrow pointing to drop location
         if (_currentLocation != null) {
@@ -824,6 +855,9 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
             _updateRealTimeDistanceAndETA(LatLng(currentLat, currentLng));
           }
         }
+        
+        // Smoothly animate camera to show the full path
+        await _animateToShowPath();
       } else {
         _showSnackBar('Could not find the place. Please try again.');
         setState(() {
@@ -919,23 +953,68 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     final origin = _snappedCurrentLocation ?? LatLng(currentLat, currentLng);
     final destination = _snappedDropLocation ?? _dropLocation!;
     
-    final southwest = LatLng(
-      origin.latitude < destination.latitude ? origin.latitude : destination.latitude,
-      origin.longitude < destination.longitude ? origin.longitude : destination.longitude,
-    );
-    final northeast = LatLng(
-      origin.latitude > destination.latitude ? origin.latitude : destination.latitude,
-      origin.longitude > destination.longitude ? origin.longitude : destination.longitude,
-    );
+    // If we have route points, use them for better bounds calculation
+    if (_routeDetails != null && _routeDetails!.points.isNotEmpty) {
+      double minLat = _routeDetails!.points[0].latitude;
+      double maxLat = _routeDetails!.points[0].latitude;
+      double minLng = _routeDetails!.points[0].longitude;
+      double maxLng = _routeDetails!.points[0].longitude;
+      
+      for (final point in _routeDetails!.points) {
+        if (point.latitude < minLat) minLat = point.latitude;
+        if (point.latitude > maxLat) maxLat = point.latitude;
+        if (point.longitude < minLng) minLng = point.longitude;
+        if (point.longitude > maxLng) maxLng = point.longitude;
+      }
+      
+      // Include origin and destination
+      minLat = math.min(minLat, math.min(origin.latitude, destination.latitude));
+      maxLat = math.max(maxLat, math.max(origin.latitude, destination.latitude));
+      minLng = math.min(minLng, math.min(origin.longitude, destination.longitude));
+      maxLng = math.max(maxLng, math.max(origin.longitude, destination.longitude));
+      
+      final bounds = LatLngBounds(
+        southwest: LatLng(minLat, minLng),
+        northeast: LatLng(maxLat, maxLng),
+      );
+      
+      await controller.animateCamera(
+        CameraUpdate.newLatLngBounds(
+          bounds,
+          120, // Padding to ensure route is fully visible
+        ),
+      );
+    } else {
+      // Fallback to simple bounds
+      final southwest = LatLng(
+        origin.latitude < destination.latitude ? origin.latitude : destination.latitude,
+        origin.longitude < destination.longitude ? origin.longitude : destination.longitude,
+      );
+      final northeast = LatLng(
+        origin.latitude > destination.latitude ? origin.latitude : destination.latitude,
+        origin.longitude > destination.longitude ? origin.longitude : destination.longitude,
+      );
 
-    final bounds = LatLngBounds(southwest: southwest, northeast: northeast);
+      final bounds = LatLngBounds(southwest: southwest, northeast: northeast);
+      
+      await controller.animateCamera(
+        CameraUpdate.newLatLngBounds(
+          bounds,
+          120,
+        ),
+      );
+    }
+  }
+
+  /// Animate camera to smoothly show the full path when drop location is selected
+  Future<void> _animateToShowPath() async {
+    if (_currentLocation == null || _dropLocation == null) return;
     
-    await controller.animateCamera(
-      CameraUpdate.newLatLngBounds(
-        bounds,
-        100,
-      ),
-    );
+    // Wait a bit for route to be fetched
+    await Future.delayed(const Duration(milliseconds: 300));
+    
+    // Fit the route to show the full path
+    await _fitRoute();
   }
 
   void _rerouteIfNeeded(LatLng currentLocation) {
