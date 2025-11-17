@@ -7,6 +7,7 @@ import 'package:location/location.dart';
 import '../../../../core/constants/map_constants.dart';
 import '../../services/location_service.dart';
 import '../../services/directions_service.dart';
+import '../../services/geocoding_service.dart';
 
 class MapScreen extends StatefulWidget {
   const MapScreen({super.key});
@@ -19,11 +20,17 @@ class _MapScreenState extends State<MapScreen> {
   final Completer<GoogleMapController> _controller = Completer();
   final LocationService _locationService = LocationService();
   final DirectionsService _directionsService = DirectionsService();
+  final GeocodingService _geocodingService = GeocodingService();
+  final TextEditingController _destinationController = TextEditingController();
+  final FocusNode _destinationFocusNode = FocusNode();
 
   LocationData? _currentLocation;
   StreamSubscription<LocationData>? _locationSubscription;
   LatLng? _dropLocation;
   bool _isLoadingRoute = false;
+  bool _isSearching = false;
+  List<Map<String, dynamic>> _searchSuggestions = [];
+  String? _destinationAddress;
 
   final Set<Marker> _markers = {};
   final Set<Circle> _circles = {};
@@ -38,6 +45,8 @@ class _MapScreenState extends State<MapScreen> {
   @override
   void dispose() {
     _locationSubscription?.cancel();
+    _destinationController.dispose();
+    _destinationFocusNode.dispose();
     super.dispose();
   }
 
@@ -105,6 +114,8 @@ class _MapScreenState extends State<MapScreen> {
   }
 
   void _addDropLocationMarker(LatLng position) {
+    // Optional: Keep marker minimal or remove it entirely
+    // For now, keeping a subtle marker
     _markers.removeWhere((marker) => marker.markerId.value == 'dropLocation');
     
     _markers.add(
@@ -112,8 +123,8 @@ class _MapScreenState extends State<MapScreen> {
         markerId: const MarkerId('dropLocation'),
         position: position,
         infoWindow: const InfoWindow(
-          title: 'Drop Location',
-          snippet: 'Tap to remove',
+          title: 'Destination',
+          snippet: 'Route destination',
         ),
         icon: BitmapDescriptor.defaultMarkerWithHue(
           BitmapDescriptor.hueRed,
@@ -125,8 +136,11 @@ class _MapScreenState extends State<MapScreen> {
   void _removeDropLocation() {
     setState(() {
       _dropLocation = null;
+      _destinationAddress = null;
+      _destinationController.clear();
       _markers.removeWhere((marker) => marker.markerId.value == 'dropLocation');
       _polylines.clear();
+      _searchSuggestions = [];
     });
   }
 
@@ -151,13 +165,18 @@ class _MapScreenState extends State<MapScreen> {
       setState(() {
         _polylines.clear();
         if (routePoints != null && routePoints.isNotEmpty) {
+          // Draw the detailed route path like Google Maps
           _polylines.add(
             Polyline(
               polylineId: const PolylineId('route'),
               points: routePoints,
-              color: Colors.blue,
-              width: 5,
+              color: const Color(0xFF4285F4), // Google Maps blue color
+              width: 6, // Slightly thicker for better visibility
               patterns: [],
+              geodesic: true, // Follows the curvature of the Earth
+              jointType: JointType.round, // Smooth rounded joints
+              endCap: Cap.roundCap, // Rounded line ends
+              startCap: Cap.roundCap,
             ),
           );
         } else {
@@ -170,9 +189,10 @@ class _MapScreenState extends State<MapScreen> {
             Polyline(
               polylineId: const PolylineId('route'),
               points: fallbackPoints,
-              color: Colors.blue,
-              width: 5,
+              color: Colors.orange.withOpacity(0.7),
+              width: 4,
               patterns: [PatternItem.dash(20), PatternItem.gap(10)],
+              geodesic: true,
             ),
           );
         }
@@ -189,9 +209,155 @@ class _MapScreenState extends State<MapScreen> {
   void _onMapTap(LatLng position) {
     setState(() {
       _dropLocation = position;
+      _destinationAddress = null;
+      _destinationController.clear();
       _addDropLocationMarker(position);
     });
     _fetchRoute();
+  }
+
+  Future<void> _searchDestination(String query) async {
+    if (query.isEmpty) {
+      setState(() {
+        _searchSuggestions = [];
+        _isSearching = false;
+      });
+      return;
+    }
+
+    setState(() {
+      _isSearching = true;
+    });
+
+    try {
+      final suggestions = await _geocodingService.searchPlaces(query);
+      setState(() {
+        _searchSuggestions = suggestions;
+        _isSearching = false;
+      });
+    } catch (e) {
+      setState(() {
+        _isSearching = false;
+      });
+    }
+  }
+
+  Future<void> _setDestinationFromAddress(String address) async {
+    setState(() {
+      _isLoadingRoute = true;
+      _destinationController.text = address;
+      _destinationFocusNode.unfocus();
+      _searchSuggestions = [];
+    });
+
+    try {
+      final location = await _geocodingService.geocodeAddress(address);
+      if (location != null) {
+        setState(() {
+          _dropLocation = location;
+          _destinationAddress = address;
+          _addDropLocationMarker(location);
+        });
+        _fetchRoute();
+        
+        // Move camera to show both locations
+        if (_currentLocation != null) {
+          final controller = await _controller.future;
+          controller.animateCamera(
+            CameraUpdate.newLatLngBounds(
+              LatLngBounds(
+                southwest: LatLng(
+                  _currentLocation!.latitude! < location.latitude
+                      ? _currentLocation!.latitude!
+                      : location.latitude,
+                  _currentLocation!.longitude! < location.longitude
+                      ? _currentLocation!.longitude!
+                      : location.longitude,
+                ),
+                northeast: LatLng(
+                  _currentLocation!.latitude! > location.latitude
+                      ? _currentLocation!.latitude!
+                      : location.latitude,
+                  _currentLocation!.longitude! > location.longitude
+                      ? _currentLocation!.longitude!
+                      : location.longitude,
+                ),
+              ),
+              padding: const EdgeInsets.all(100),
+            ),
+          );
+        }
+      } else {
+        _showSnackBar('Could not find the address. Please try again.');
+        setState(() {
+          _isLoadingRoute = false;
+        });
+      }
+    } catch (e) {
+      _showSnackBar('Error finding address: $e');
+      setState(() {
+        _isLoadingRoute = false;
+      });
+    }
+  }
+
+  Future<void> _setDestinationFromPlaceId(String placeId, String description) async {
+    setState(() {
+      _isLoadingRoute = true;
+      _destinationController.text = description;
+      _destinationFocusNode.unfocus();
+      _searchSuggestions = [];
+    });
+
+    try {
+      final location = await _geocodingService.getPlaceDetails(placeId);
+      if (location != null) {
+        setState(() {
+          _dropLocation = location;
+          _destinationAddress = description;
+          _addDropLocationMarker(location);
+        });
+        _fetchRoute();
+        
+        // Move camera to show both locations
+        if (_currentLocation != null) {
+          final controller = await _controller.future;
+          controller.animateCamera(
+            CameraUpdate.newLatLngBounds(
+              LatLngBounds(
+                southwest: LatLng(
+                  _currentLocation!.latitude! < location.latitude
+                      ? _currentLocation!.latitude!
+                      : location.latitude,
+                  _currentLocation!.longitude! < location.longitude
+                      ? _currentLocation!.longitude!
+                      : location.longitude,
+                ),
+                northeast: LatLng(
+                  _currentLocation!.latitude! > location.latitude
+                      ? _currentLocation!.latitude!
+                      : location.latitude,
+                  _currentLocation!.longitude! > location.longitude
+                      ? _currentLocation!.longitude!
+                      : location.longitude,
+                ),
+              ),
+              padding: const EdgeInsets.all(100),
+            ),
+          );
+        }
+      } else {
+        _showSnackBar('Could not find the place. Please try again.');
+        setState(() {
+          _isLoadingRoute = false;
+        });
+      }
+    } catch (e) {
+      _showSnackBar('Error finding place: $e');
+      setState(() {
+        _isLoadingRoute = false;
+      });
+    }
   }
 
   void _updateRadar(LocationData locationData) {
@@ -281,11 +447,82 @@ class _MapScreenState extends State<MapScreen> {
             },
             onTap: _onMapTap,
           ),
+          // Destination Search Bar
+          Positioned(
+            top: 10,
+            left: 10,
+            right: 10,
+            child: Card(
+              elevation: 4,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: _destinationController,
+                    focusNode: _destinationFocusNode,
+                    decoration: InputDecoration(
+                      hintText: 'Enter destination address',
+                      prefixIcon: const Icon(Icons.search),
+                      suffixIcon: _dropLocation != null || _destinationController.text.isNotEmpty
+                          ? IconButton(
+                              icon: const Icon(Icons.clear),
+                              onPressed: () {
+                                _destinationController.clear();
+                                _removeDropLocation();
+                                setState(() {});
+                              },
+                            )
+                          : null,
+                      border: InputBorder.none,
+                      contentPadding: const EdgeInsets.all(16),
+                    ),
+                    onChanged: (value) {
+                      setState(() {});
+                      if (value.isNotEmpty) {
+                        _searchDestination(value);
+                      } else {
+                        setState(() {
+                          _searchSuggestions = [];
+                        });
+                      }
+                    },
+                    onSubmitted: (value) {
+                      if (value.isNotEmpty) {
+                        _setDestinationFromAddress(value);
+                      }
+                    },
+                  ),
+                  // Search Suggestions
+                  if (_searchSuggestions.isNotEmpty)
+                    Container(
+                      constraints: const BoxConstraints(maxHeight: 200),
+                      child: ListView.builder(
+                        shrinkWrap: true,
+                        itemCount: _searchSuggestions.length,
+                        itemBuilder: (context, index) {
+                          final suggestion = _searchSuggestions[index];
+                          return ListTile(
+                            leading: const Icon(Icons.location_on),
+                            title: Text(suggestion['description'] as String),
+                            onTap: () {
+                              _setDestinationFromPlaceId(
+                                suggestion['place_id'] as String,
+                                suggestion['description'] as String,
+                              );
+                            },
+                          );
+                        },
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
           if (_isLoadingRoute)
             const Center(
               child: CircularProgressIndicator(),
             ),
-          if (_dropLocation == null)
+          if (_dropLocation == null && _destinationController.text.isEmpty)
             Positioned(
               bottom: 100,
               left: 20,
@@ -295,7 +532,7 @@ class _MapScreenState extends State<MapScreen> {
                 child: const Padding(
                   padding: EdgeInsets.all(12.0),
                   child: Text(
-                    'Tap on the map to set drop location',
+                    'Enter destination address or tap on the map',
                     style: TextStyle(
                       color: Colors.white,
                       fontWeight: FontWeight.bold,

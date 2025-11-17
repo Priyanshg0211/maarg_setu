@@ -11,12 +11,14 @@ class DirectionsService {
   }) async {
     try {
       // Build the Directions API URL with proper encoding
+      // Using alternatives=true to get the best route
       final url = Uri.parse(
         '${MapConstants.directionsApiUrl}'
         '?origin=${origin.latitude},${origin.longitude}'
         '&destination=${destination.latitude},${destination.longitude}'
         '&key=${MapConstants.googleMapsApiKey}'
-        '&mode=driving', // You can change to 'walking', 'bicycling', or 'transit'
+        '&mode=driving'
+        '&alternatives=false', // Set to true if you want multiple route options
       );
 
       final response = await http.get(url);
@@ -28,16 +30,42 @@ class DirectionsService {
           final routes = data['routes'] as List;
           if (routes.isNotEmpty) {
             final route = routes[0] as Map<String, dynamic>;
-            final overviewPolyline = route['overview_polyline'] as Map<String, dynamic>;
-            final polyline = overviewPolyline['points'] as String;
             
-            // Decode polyline to get list of LatLng points
-            final decodedPoints = decodePolyline(polyline);
+            // Get detailed polylines from all legs and steps for accurate road-following
+            final legs = route['legs'] as List;
+            List<LatLng> allRoutePoints = [];
             
-            if (decodedPoints.isNotEmpty) {
-              return decodedPoints
-                  .map((point) => LatLng(point[0].toDouble(), point[1].toDouble()))
-                  .toList();
+            for (var leg in legs) {
+              final steps = leg['steps'] as List;
+              for (var step in steps) {
+                final stepPolyline = step['polyline'] as Map<String, dynamic>;
+                final polylineString = stepPolyline['points'] as String;
+                
+                // Decode each step's polyline for detailed route
+                final decodedPoints = decodePolyline(polylineString);
+                if (decodedPoints.isNotEmpty) {
+                  final stepPoints = decodedPoints
+                      .map((point) => LatLng(point[0].toDouble(), point[1].toDouble()))
+                      .toList();
+                  allRoutePoints.addAll(stepPoints);
+                }
+              }
+            }
+            
+            // If detailed steps are available, use them; otherwise fall back to overview
+            if (allRoutePoints.isNotEmpty) {
+              return allRoutePoints;
+            } else {
+              // Fallback to overview polyline if steps are not available
+              final overviewPolyline = route['overview_polyline'] as Map<String, dynamic>;
+              final polyline = overviewPolyline['points'] as String;
+              final decodedPoints = decodePolyline(polyline);
+              
+              if (decodedPoints.isNotEmpty) {
+                return decodedPoints
+                    .map((point) => LatLng(point[0].toDouble(), point[1].toDouble()))
+                    .toList();
+              }
             }
           }
         } else {
