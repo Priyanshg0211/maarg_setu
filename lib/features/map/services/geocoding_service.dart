@@ -1,9 +1,12 @@
 import 'dart:convert';
+import 'dart:async';
 import 'package:http/http.dart' as http;
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import '../../../../core/constants/map_constants.dart';
 
 class GeocodingService {
+  Timer? _debounceTimer;
+  
   Future<LatLng?> geocodeAddress(String address) async {
     try {
       final encodedAddress = Uri.encodeComponent(address);
@@ -41,6 +44,45 @@ class GeocodingService {
     }
   }
 
+  /// Search places with debouncing for better UX (like Google Maps)
+  Future<List<Map<String, dynamic>>> searchPlacesDebounced(
+    String query, {
+    LatLng? location,
+    double? radius,
+    Duration debounceDuration = const Duration(milliseconds: 300),
+    required Function(List<Map<String, dynamic>>) onResults,
+  }) async {
+    // Cancel previous timer
+    _debounceTimer?.cancel();
+    
+    // If query is empty, return empty results immediately
+    if (query.trim().isEmpty) {
+      onResults([]);
+      return [];
+    }
+    
+    // Create new timer
+    final completer = Completer<List<Map<String, dynamic>>>();
+    
+    _debounceTimer = Timer(debounceDuration, () async {
+      try {
+        final results = await searchPlaces(
+          query,
+          location: location,
+          radius: radius,
+        );
+        onResults(results);
+        completer.complete(results);
+      } catch (e) {
+        print('Error in debounced search: $e');
+        onResults([]);
+        completer.complete([]);
+      }
+    });
+    
+    return completer.future;
+  }
+
   Future<List<Map<String, dynamic>>> searchPlaces(
     String query, {
     LatLng? location,
@@ -59,7 +101,10 @@ class GeocodingService {
       }
       
       // Include establishments and addresses
-      url += '&types=(geocode|establishment)';
+      url += '&types=establishment|geocode';
+      
+      // Add language preference (optional)
+      url += '&language=en';
 
       final response = await http.get(Uri.parse(url));
 
@@ -75,6 +120,7 @@ class GeocodingService {
                   'description': pred['description'] as String,
                   'place_id': pred['place_id'] as String,
                   'structured_formatting': pred['structured_formatting'] as Map<String, dynamic>?,
+                  'types': pred['types'] as List<dynamic>?,
                 };
               })
               .toList();
@@ -199,5 +245,9 @@ class GeocodingService {
       return location;
     }
   }
+  
+  /// Cancel any pending debounced searches
+  void dispose() {
+    _debounceTimer?.cancel();
+  }
 }
-
