@@ -104,5 +104,74 @@ class GeocodingService {
       return null;
     }
   }
+
+  // Reverse geocoding: Get address from coordinates
+  Future<Map<String, dynamic>?> reverseGeocode(LatLng location) async {
+    try {
+      final url = Uri.parse(
+        'https://maps.googleapis.com/maps/api/geocode/json'
+        '?latlng=${location.latitude},${location.longitude}'
+        '&key=${MapConstants.googleMapsApiKey}',
+      );
+
+      final response = await http.get(url);
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body) as Map<String, dynamic>;
+        
+        if (data['status'] == 'OK' && data['results'].isNotEmpty) {
+          final result = data['results'][0] as Map<String, dynamic>;
+          return {
+            'address': result['formatted_address'] as String,
+            'location': location,
+            'place_id': result['place_id'] as String?,
+          };
+        }
+      }
+      return null;
+    } catch (e) {
+      print('Error reverse geocoding: $e');
+      return null;
+    }
+  }
+
+  // Snap to roads using Directions API (fallback method)
+  Future<LatLng?> snapToRoad(LatLng location) async {
+    try {
+      // Use Directions API with waypoints to snap to nearest road
+      // This is a workaround since Roads API requires billing
+      final url = Uri.parse(
+        '${MapConstants.directionsApiUrl}'
+        '?origin=${location.latitude},${location.longitude}'
+        '&destination=${location.latitude},${location.longitude}'
+        '&key=${MapConstants.googleMapsApiKey}'
+        '&mode=driving',
+      );
+
+      final response = await http.get(url);
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body) as Map<String, dynamic>;
+        
+        if (data['status'] == 'OK' && data['routes'].isNotEmpty) {
+          final route = data['routes'][0] as Map<String, dynamic>;
+          final legs = route['legs'] as List;
+          if (legs.isNotEmpty) {
+            final leg = legs[0] as Map<String, dynamic>;
+            final startLocation = leg['start_location'] as Map<String, dynamic>;
+            return LatLng(
+              startLocation['lat'] as double,
+              startLocation['lng'] as double,
+            );
+          }
+        }
+      }
+      // If snapping fails, return original location
+      return location;
+    } catch (e) {
+      print('Error snapping to road: $e');
+      return location;
+    }
+  }
 }
 
