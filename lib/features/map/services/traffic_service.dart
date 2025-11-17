@@ -37,8 +37,8 @@ class TrafficService {
     List<TrafficDataPoint> trafficPoints = [];
     
     // Optimized sampling: Use fewer points for better performance
-    // Sample every 500 meters in a grid pattern
-    const double stepDistance = 500; // Sample every 500 meters
+    // Sample every 600 meters in a grid pattern for 3km range
+    const double stepDistance = 600; // Sample every 600 meters
     
     // Calculate grid bounds
     final double latStep = stepDistance / 111000; // Approximate meters to degrees

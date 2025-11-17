@@ -968,33 +968,39 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     }
   }
 
-  /// Update circles to show traffic heatmap
+  /// Update circles to show single unified traffic heatmap around user location
   void _updateTrafficCircles() {
-    // Remove existing traffic circles (but keep radar circle)
-    _circles.removeWhere((circle) => circle.circleId.value.startsWith('traffic_'));
+    // Remove existing traffic heatmap circle (but keep radar circle)
+    _circles.removeWhere((circle) => circle.circleId.value == 'traffic_heatmap');
     
-    if (!_showTrafficHeatmap || _trafficDataPoints.isEmpty) {
+    if (!_showTrafficHeatmap || _trafficDataPoints.isEmpty || _currentLocation == null) {
       setState(() {});
       return;
     }
 
-    // Add circles for each traffic data point
-    for (int i = 0; i < _trafficDataPoints.length; i++) {
-      final point = _trafficDataPoints[i];
-      final color = TrafficService.getTrafficColor(point.intensity);
-      
-      _circles.add(
-        Circle(
-          circleId: CircleId('traffic_$i'),
-          center: point.location,
-          radius: 150, // 150m radius for each traffic point
-          fillColor: color,
-          strokeColor: color.withOpacity(0.8),
-          strokeWidth: 0,
-          zIndex: 0, // Behind other elements
-        ),
-      );
-    }
+    final lat = _currentLocation!.latitude;
+    final lng = _currentLocation!.longitude;
+    if (lat == null || lng == null) return;
+
+    // Calculate average traffic intensity from all traffic points
+    final avgIntensity = _getAverageTrafficIntensity();
+    if (avgIntensity == null) return;
+
+    // Get color based on average intensity
+    final color = TrafficService.getTrafficColor(avgIntensity);
+    
+    // Create a single unified heatmap circle around user's live location
+    _circles.add(
+      Circle(
+        circleId: const CircleId('traffic_heatmap'),
+        center: LatLng(lat, lng),
+        radius: MapConstants.radarRadius, // 3km radius
+        fillColor: color.withOpacity(0.3), // Semi-transparent overlay
+        strokeColor: color.withOpacity(0.7),
+        strokeWidth: 3,
+        zIndex: 0, // Behind other elements
+      ),
+    );
     
     setState(() {});
   }
