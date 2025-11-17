@@ -124,6 +124,7 @@ class DirectionsService {
       print('Error getting directions: $e');
       return null;
     }
+    return null;
   }
 
   // Legacy method for backward compatibility
