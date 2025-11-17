@@ -62,10 +62,11 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
   
   // Traffic heatmap data
   List<TrafficDataPoint> _trafficDataPoints = [];
-  bool _showTrafficHeatmap = true;
+  bool _showTrafficHeatmap = true; // Always show heatmap
   bool _isLoadingTraffic = false;
   Timer? _trafficUpdateTimer;
   LatLng? _lastTrafficUpdateLocation;
+  LatLng? _heatmapCenter; // Center point for heatmap (user location or tapped location)
   
   AnimationController? _markerAnimationController;
   LatLng? _previousLocation;
@@ -375,6 +376,18 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
       _formattedETA = '';
     });
     
+    // Reset heatmap to user location when drop location is removed
+    if (_currentLocation != null) {
+      final lat = _currentLocation!.latitude;
+      final lng = _currentLocation!.longitude;
+      if (lat != null && lng != null) {
+        setState(() {
+          _heatmapCenter = LatLng(lat, lng);
+        });
+        _updateTrafficHeatmap(LatLng(lat, lng));
+      }
+    }
+    
     // Update marker to remove arrow when drop location is removed
     if (_currentLocation != null) {
       _updateMarker(_currentLocation!);
@@ -610,7 +623,13 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     setState(() {
       _dropLocation = position;
       _destinationController.clear();
+      // Update heatmap center to tapped location
+      _heatmapCenter = position;
     });
+    
+    // Update heatmap at tapped location
+    _updateTrafficHeatmap(position);
+    
     await _addDropLocationMarker(position);
     
     // Automatically fetch and display the route path
@@ -893,12 +912,21 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     final longitude = locationData.longitude;
     if (latitude == null || longitude == null) return;
 
+      final location = LatLng(latitude, longitude);
+      
+    // Initialize heatmap center to user location if not set
+    if (_heatmapCenter == null) {
+      _heatmapCenter = location;
+      // Fetch initial traffic data
+      _updateTrafficHeatmap(location);
+    }
+
     _circles
-      ..clear()
+      ..removeWhere((circle) => circle.circleId.value == 'radar')
       ..add(
         Circle(
           circleId: const CircleId('radar'),
-          center: LatLng(latitude, longitude),
+          center: location,
           radius: MapConstants.radarRadius,
           fillColor: Colors.blue.withOpacity(0.1),
           strokeColor: Colors.blue.withOpacity(0.3),
@@ -906,9 +934,20 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
         ),
       );
     
-    // Update traffic heatmap when location changes
-    if (_showTrafficHeatmap) {
-      _updateTrafficHeatmap(LatLng(latitude, longitude));
+    // Always update traffic heatmap when location changes (if center is user location)
+    // Only auto-update if heatmap center matches user location (not when user tapped elsewhere)
+    if (_showTrafficHeatmap && _heatmapCenter != null) {
+      final heatmapLat = _heatmapCenter!.latitude;
+      final heatmapLng = _heatmapCenter!.longitude;
+      // Check if heatmap center is close to user location (within 50m)
+      final distance = _calculateDistance(_heatmapCenter!, location);
+      if (distance < 50) {
+        // Update heatmap center to follow user location
+        setState(() {
+          _heatmapCenter = location;
+        });
+        _updateTrafficHeatmap(location);
+      }
     }
   }
 
@@ -968,58 +1007,140 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     }
   }
 
-  /// Update circles to show single unified traffic heatmap around user location
+  /// Update circles to show enhanced gradient-based traffic heatmap
   void _updateTrafficCircles() {
-    // Remove existing traffic heatmap circle (but keep radar circle)
-    _circles.removeWhere((circle) => circle.circleId.value == 'traffic_heatmap');
+    // Remove existing traffic heatmap circles and traffic point circles (but keep radar circle)
+    _circles.removeWhere((circle) => 
+      circle.circleId.value.startsWith('traffic_heatmap') || 
+      circle.circleId.value.startsWith('traffic_point_'));
     
-    if (!_showTrafficHeatmap || _trafficDataPoints.isEmpty || _currentLocation == null) {
+    if (!_showTrafficHeatmap || _heatmapCenter == null) {
       setState(() {});
       return;
     }
 
-    final lat = _currentLocation!.latitude;
-    final lng = _currentLocation!.longitude;
-    if (lat == null || lng == null) return;
+    // If we have traffic data points, create a sophisticated gradient heatmap
+    if (_trafficDataPoints.isNotEmpty) {
+      // Calculate average traffic intensity from all traffic points
+      final avgIntensity = _getAverageTrafficIntensity();
+      if (avgIntensity == null) {
+        setState(() {});
+        return;
+      }
 
-    // Calculate average traffic intensity from all traffic points
-    final avgIntensity = _getAverageTrafficIntensity();
-    if (avgIntensity == null) return;
-
-    // Get color based on average intensity
-    final color = TrafficService.getTrafficColor(avgIntensity);
-    
-    // Create a single unified heatmap circle around user's live location
-    _circles.add(
-      Circle(
-        circleId: const CircleId('traffic_heatmap'),
-        center: LatLng(lat, lng),
-        radius: MapConstants.radarRadius, // 3km radius
-        fillColor: color.withOpacity(0.3), // Semi-transparent overlay
-        strokeColor: color.withOpacity(0.7),
-        strokeWidth: 3,
-        zIndex: 0, // Behind other elements
-      ),
-    );
+      // Get base color based on average intensity
+      final baseColor = _getTrafficColorForIntensity(avgIntensity);
+      
+      // Create multiple concentric circles with gradient effect for better visualization
+      // Outer circle (largest, most transparent)
+      _circles.add(
+        Circle(
+          circleId: const CircleId('traffic_heatmap_outer'),
+          center: _heatmapCenter!,
+          radius: MapConstants.radarRadius,
+          fillColor: baseColor.withOpacity(0.15),
+          strokeColor: baseColor.withOpacity(0.4),
+          strokeWidth: 2,
+          zIndex: 0,
+        ),
+      );
+      
+      // Middle circle
+      _circles.add(
+        Circle(
+          circleId: const CircleId('traffic_heatmap_middle'),
+          center: _heatmapCenter!,
+          radius: MapConstants.radarRadius * 0.7,
+          fillColor: baseColor.withOpacity(0.25),
+          strokeColor: baseColor.withOpacity(0.5),
+          strokeWidth: 2,
+          zIndex: 0,
+        ),
+      );
+      
+      // Inner circle (most intense)
+      _circles.add(
+        Circle(
+          circleId: const CircleId('traffic_heatmap_inner'),
+          center: _heatmapCenter!,
+          radius: MapConstants.radarRadius * 0.4,
+          fillColor: baseColor.withOpacity(0.35),
+          strokeColor: baseColor.withOpacity(0.7),
+          strokeWidth: 3,
+          zIndex: 0,
+        ),
+      );
+      
+      // Add individual traffic point circles for more granular visualization
+      for (int i = 0; i < _trafficDataPoints.length; i++) {
+        final point = _trafficDataPoints[i];
+        final pointColor = _getTrafficColorForIntensity(point.intensity);
+        final distance = _calculateDistance(_heatmapCenter!, point.location);
+        
+        // Only show points within the radar radius
+        if (distance <= MapConstants.radarRadius) {
+          // Size based on intensity (more intense = larger circle)
+          final radius = 50.0 + (point.intensity.index * 30.0);
+          final opacity = 0.4 + (point.intensity.index * 0.1);
+          
+          _circles.add(
+            Circle(
+              circleId: CircleId('traffic_point_$i'),
+              center: point.location,
+              radius: radius,
+              fillColor: pointColor.withOpacity(opacity.clamp(0.3, 0.6)),
+              strokeColor: pointColor.withOpacity(0.8),
+              strokeWidth: 1.5,
+              zIndex: 1,
+            ),
+          );
+        }
+      }
+    } else {
+      // Show a subtle default circle when no data yet
+      _circles.add(
+        Circle(
+          circleId: const CircleId('traffic_heatmap_default'),
+          center: _heatmapCenter!,
+          radius: MapConstants.radarRadius,
+          fillColor: Colors.grey.withOpacity(0.1),
+          strokeColor: Colors.grey.withOpacity(0.3),
+          strokeWidth: 2,
+          zIndex: 0,
+        ),
+      );
+    }
     
     setState(() {});
   }
   
-  /// Toggle traffic heatmap visibility
-  void _toggleTrafficHeatmap() {
-    setState(() {
-      _showTrafficHeatmap = !_showTrafficHeatmap;
-    });
-    
-    if (_showTrafficHeatmap && _currentLocation != null) {
+  /// Get traffic color for intensity (without opacity, we'll add it per circle)
+  Color _getTrafficColorForIntensity(TrafficIntensity intensity) {
+    switch (intensity) {
+      case TrafficIntensity.none:
+        return Colors.green;
+      case TrafficIntensity.light:
+        return Colors.yellow;
+      case TrafficIntensity.moderate:
+        return Colors.orange;
+      case TrafficIntensity.heavy:
+        return Colors.red;
+      case TrafficIntensity.severe:
+        return const Color(0xFF8B0000); // Dark red
+    }
+  }
+  
+  /// Reset heatmap to user location
+  void _resetHeatmapToUserLocation() {
+    if (_currentLocation != null) {
       final lat = _currentLocation!.latitude;
       final lng = _currentLocation!.longitude;
       if (lat != null && lng != null) {
-        // Fetch immediately when toggling on
-        _fetchTrafficData(LatLng(lat, lng));
+        setState(() {
+          _heatmapCenter = LatLng(lat, lng);
+        });
+        _updateTrafficHeatmap(LatLng(lat, lng));
       }
-    } else {
-      _updateTrafficCircles(); // This will clear traffic circles
     }
   }
   
@@ -2149,8 +2270,8 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
               ),
             ),
 
-          // Traffic Heatmap Toggle & Status
-          if (!_isNavigating && _currentLocation != null)
+          // Traffic Heatmap Status Indicator (Always Visible)
+          if (!_isNavigating && _heatmapCenter != null)
             Positioned(
               left: 16,
               bottom: _routeDetails != null ? 200 : 16,
@@ -2171,73 +2292,87 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       // Traffic Status Indicator
-                      if (_trafficDataPoints.isNotEmpty)
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                          decoration: BoxDecoration(
-                            color: _getAverageTrafficIntensity() != null
-                                ? TrafficService.getTrafficColor(_getAverageTrafficIntensity()!)
-                                : Colors.grey.withOpacity(0.1),
-                            borderRadius: const BorderRadius.only(
-                              topLeft: Radius.circular(12),
-                              topRight: Radius.circular(12),
-                            ),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(
-                                Icons.traffic,
-                                size: 18,
-                                color: _getAverageTrafficIntensity() != null &&
-                                        _getAverageTrafficIntensity()!.index > 1
-                                    ? Colors.white
-                                    : Colors.black87,
-                              ),
-                              const SizedBox(width: 6),
-                              Text(
-                                _getTrafficStatusText(),
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w600,
-                                  color: _getAverageTrafficIntensity() != null &&
-                                          _getAverageTrafficIntensity()!.index > 1
-                                      ? Colors.white
-                                      : Colors.black87,
-                                ),
-                              ),
-                            ],
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                        decoration: BoxDecoration(
+                          color: _getAverageTrafficIntensity() != null
+                              ? _getTrafficColorForIntensity(_getAverageTrafficIntensity()!)
+                              : Colors.grey.withOpacity(0.1),
+                          borderRadius: const BorderRadius.only(
+                            topLeft: Radius.circular(12),
+                            topRight: Radius.circular(12),
                           ),
                         ),
-                      // Toggle Button
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Icons.heat_pump_rounded,
+                              size: 20,
+                              color: _getAverageTrafficIntensity() != null &&
+                                      _getAverageTrafficIntensity()!.index > 1
+                                  ? Colors.white
+                                  : Colors.black87,
+                            ),
+                            const SizedBox(width: 8),
+                            Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  'Traffic Heatmap',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w500,
+                                    color: _getAverageTrafficIntensity() != null &&
+                                            _getAverageTrafficIntensity()!.index > 1
+                                        ? Colors.white
+                                        : Colors.black87,
+                                  ),
+                                ),
+                                if (_trafficDataPoints.isNotEmpty)
+                                  Text(
+                                    _getTrafficStatusText(),
+                                    style: TextStyle(
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.bold,
+                                      color: _getAverageTrafficIntensity() != null &&
+                                              _getAverageTrafficIntensity()!.index > 1
+                                          ? Colors.white
+                                          : Colors.black87,
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                      // Reset to user location button
                       Material(
                         color: Colors.transparent,
                         child: InkWell(
-                          onTap: _toggleTrafficHeatmap,
-                          borderRadius: BorderRadius.circular(12),
+                          onTap: _resetHeatmapToUserLocation,
+                          borderRadius: const BorderRadius.only(
+                            bottomLeft: Radius.circular(12),
+                            bottomRight: Radius.circular(12),
+                          ),
                           child: Container(
-                            padding: const EdgeInsets.all(12),
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                             child: Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
                                 Icon(
-                                  _showTrafficHeatmap
-                                      ? Icons.layers
-                                      : Icons.layers_outlined,
-                                  size: 20,
-                                  color: _showTrafficHeatmap
-                                      ? Colors.blue
-                                      : Colors.grey,
+                                  Icons.my_location,
+                                  size: 18,
+                                  color: Colors.blue[700],
                                 ),
                                 const SizedBox(width: 8),
                                 Text(
-                                  _showTrafficHeatmap ? 'Hide Traffic' : 'Show Traffic',
+                                  'Reset to My Location',
                                   style: TextStyle(
-                                    fontSize: 13,
+                                    fontSize: 12,
                                     fontWeight: FontWeight.w500,
-                                    color: _showTrafficHeatmap
-                                        ? Colors.blue
-                                        : Colors.grey[700],
+                                    color: Colors.blue[700],
                                   ),
                                 ),
                               ],
@@ -2248,7 +2383,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                       // Loading indicator
                       if (_isLoadingTraffic)
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                           child: const SizedBox(
                             width: 16,
                             height: 16,
