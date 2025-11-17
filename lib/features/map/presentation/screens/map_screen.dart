@@ -52,6 +52,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
   final Set<Marker> _markers = {};
   final Set<Circle> _circles = {};
   final Set<Polyline> _polylines = {};
+  final Set<Polygon> _polygons = {}; // For route polygon visualization
   
   AnimationController? _markerAnimationController;
   LatLng? _previousLocation;
@@ -73,6 +74,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     _destinationFocusNode.dispose();
     _markerAnimationController?.dispose();
     _searchDebounceTimer?.cancel();
+    _routeUpdateTimer?.cancel();
     super.dispose();
   }
 
@@ -147,7 +149,10 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     if (_isNavigating && _dropLocation != null) {
       _rerouteIfNeeded(newLocation);
     } else if (_dropLocation != null && !_isLoadingRoute) {
-      _fetchRoute();
+      // Always ensure route is fetched when drop location is set
+      if (_routeDetails == null) {
+        _fetchRoute();
+      }
     }
     
     // Update real-time distance and ETA
@@ -263,6 +268,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
       _dropLocationAddress = null;
       _markers.removeWhere((marker) => marker.markerId.value == 'dropLocation');
       _polylines.clear();
+      _polygons.clear();
       _searchSuggestions = [];
       _realTimeDistance = null;
       _formattedDistance = '';
@@ -320,11 +326,13 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
 
   void _updateRoutePolylines() {
     _polylines.clear();
+    _polygons.clear();
     
     for (int i = 0; i < _alternativeRoutes.length; i++) {
       final route = _alternativeRoutes[i];
       final isSelected = i == _selectedRouteIndex;
       
+      // Add polyline for the route path
       _polylines.add(
         Polyline(
           polylineId: PolylineId('route_$i'),
@@ -340,7 +348,112 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
           startCap: Cap.roundCap,
         ),
       );
+      
+      // Add polygon around the route for visualization (only for selected route)
+      if (isSelected && route.points.length >= 2) {
+        final routePolygon = _createRoutePolygon(route.points);
+        if (routePolygon.isNotEmpty) {
+          _polygons.add(
+            Polygon(
+              polygonId: PolygonId('route_polygon_$i'),
+              points: routePolygon,
+              fillColor: const Color(0xFF4285F4).withOpacity(0.15),
+              strokeColor: const Color(0xFF4285F4).withOpacity(0.3),
+              strokeWidth: 1,
+              geodesic: true,
+            ),
+          );
+        }
+      }
     }
+  }
+
+  /// Create a polygon around the route path by creating a buffer zone
+  List<LatLng> _createRoutePolygon(List<LatLng> routePoints) {
+    if (routePoints.length < 2) return [];
+    
+    // Simplified polygon creation - create a buffer around the route
+    // For better performance, we'll create a simpler polygon using route bounds
+    if (routePoints.length < 10) {
+      // For short routes, create a simple buffer
+      return _createSimpleRouteBuffer(routePoints);
+    }
+    
+    // For longer routes, sample points to reduce complexity
+    List<LatLng> sampledPoints = [];
+    final step = (routePoints.length / 50).ceil(); // Sample every Nth point
+    for (int i = 0; i < routePoints.length; i += step) {
+      sampledPoints.add(routePoints[i]);
+    }
+    if (sampledPoints.last != routePoints.last) {
+      sampledPoints.add(routePoints.last);
+    }
+    
+    return _createSimpleRouteBuffer(sampledPoints);
+  }
+
+  /// Create a simple buffer polygon around route points
+  List<LatLng> _createSimpleRouteBuffer(List<LatLng> routePoints) {
+    if (routePoints.length < 2) return [];
+    
+    List<LatLng> leftSide = [];
+    List<LatLng> rightSide = [];
+    const double bufferDistance = 0.00015; // Approximately 15-20 meters buffer
+    
+    for (int i = 0; i < routePoints.length; i++) {
+      LatLng point = routePoints[i];
+      double bearing = 0;
+      
+      if (i < routePoints.length - 1) {
+        bearing = _calculateBearing(point, routePoints[i + 1]);
+      } else if (i > 0) {
+        bearing = _calculateBearing(routePoints[i - 1], point);
+      }
+      
+      // Calculate perpendicular points
+      final leftBearing = (bearing + 90) % 360;
+      final rightBearing = (bearing - 90 + 360) % 360;
+      
+      leftSide.add(_calculateOffset(point, bufferDistance, leftBearing));
+      rightSide.insert(0, _calculateOffset(point, bufferDistance, rightBearing));
+    }
+    
+    // Combine left and right sides to form closed polygon
+    return [...leftSide, ...rightSide, leftSide.first];
+  }
+
+  /// Calculate bearing between two points
+  double _calculateBearing(LatLng from, LatLng to) {
+    final lat1 = from.latitude * math.pi / 180;
+    final lat2 = to.latitude * math.pi / 180;
+    final dLon = (to.longitude - from.longitude) * math.pi / 180;
+    
+    final y = math.sin(dLon) * math.cos(lat2);
+    final x = math.cos(lat1) * math.sin(lat2) - 
+              math.sin(lat1) * math.cos(lat2) * math.cos(dLon);
+    
+    final bearing = math.atan2(y, x);
+    return (bearing * 180 / math.pi + 360) % 360;
+  }
+
+  /// Calculate offset point from a given point
+  LatLng _calculateOffset(LatLng point, double distance, double bearing) {
+    const double earthRadius = 6371000; // meters
+    final lat1 = point.latitude * math.pi / 180;
+    final lon1 = point.longitude * math.pi / 180;
+    final bearingRad = bearing * math.pi / 180;
+    
+    final lat2 = math.asin(
+      math.sin(lat1) * math.cos(distance / earthRadius) +
+      math.cos(lat1) * math.sin(distance / earthRadius) * math.cos(bearingRad),
+    );
+    
+    final lon2 = lon1 + math.atan2(
+      math.sin(bearingRad) * math.sin(distance / earthRadius) * math.cos(lat1),
+      math.cos(distance / earthRadius) - math.sin(lat1) * math.sin(lat2),
+    );
+    
+    return LatLng(lat2 * 180 / math.pi, lon2 * 180 / math.pi);
   }
 
   void _selectRoute(int index) {
@@ -727,10 +840,32 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     final nearestPoint = _findNearestPointOnRoute(currentLocation, _routeDetails!.points);
     final distance = _calculateDistance(currentLocation, nearestPoint);
     
-    // If deviated more than 50 meters, reroute
+    // If deviated more than 50 meters, reroute (real-time route update)
     if (distance > 50) {
       _fetchRoute(showAlternatives: false);
     }
+    
+    // Also update route periodically (every 30 seconds) for live traffic updates
+    // This ensures we get the latest route with current traffic conditions
+    _updateRoutePeriodically();
+  }
+
+  Timer? _routeUpdateTimer;
+  
+  void _updateRoutePeriodically() {
+    // Cancel previous timer
+    _routeUpdateTimer?.cancel();
+    
+    // Set up periodic route updates every 30 seconds during navigation
+    // This fetches fresh routes with current traffic conditions
+    _routeUpdateTimer = Timer.periodic(const Duration(seconds: 30), (timer) {
+      if (_isNavigating && _dropLocation != null && !_isLoadingRoute) {
+        _fetchRoute(showAlternatives: false);
+      } else {
+        // Stop timer if navigation stopped
+        timer.cancel();
+      }
+    });
   }
 
   void _updateCurrentStep(LatLng currentLocation) {
@@ -930,6 +1065,9 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
       _currentStepIndex = 0;
     });
     
+    // Start periodic route updates for live traffic data
+    _updateRoutePeriodically();
+    
     // Move camera to navigation view
     if (_currentLocation != null) {
       _moveCameraToLocation(_currentLocation!, snappedLocation: _snappedCurrentLocation);
@@ -941,6 +1079,9 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
       _isNavigating = false;
       _currentStepIndex = 0;
     });
+    
+    // Cancel periodic route updates when navigation stops
+    _routeUpdateTimer?.cancel();
   }
 
   void _showSnackBar(String message) {
@@ -1004,6 +1145,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
             markers: _markers,
             circles: _circles,
             polylines: _polylines,
+            polygons: _polygons,
             myLocationEnabled: !_isNavigating, // Disable default during navigation
             myLocationButtonEnabled: false,
             zoomControlsEnabled: false,
