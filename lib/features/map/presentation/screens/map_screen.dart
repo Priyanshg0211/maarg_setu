@@ -28,9 +28,7 @@ class _MapScreenState extends State<MapScreen> {
   StreamSubscription<LocationData>? _locationSubscription;
   LatLng? _dropLocation;
   bool _isLoadingRoute = false;
-  bool _isSearching = false;
   List<Map<String, dynamic>> _searchSuggestions = [];
-  String? _destinationAddress;
 
   final Set<Marker> _markers = {};
   final Set<Circle> _circles = {};
@@ -136,7 +134,6 @@ class _MapScreenState extends State<MapScreen> {
   void _removeDropLocation() {
     setState(() {
       _dropLocation = null;
-      _destinationAddress = null;
       _destinationController.clear();
       _markers.removeWhere((marker) => marker.markerId.value == 'dropLocation');
       _polylines.clear();
@@ -209,7 +206,6 @@ class _MapScreenState extends State<MapScreen> {
   void _onMapTap(LatLng position) {
     setState(() {
       _dropLocation = position;
-      _destinationAddress = null;
       _destinationController.clear();
       _addDropLocationMarker(position);
     });
@@ -220,24 +216,20 @@ class _MapScreenState extends State<MapScreen> {
     if (query.isEmpty) {
       setState(() {
         _searchSuggestions = [];
-        _isSearching = false;
       });
       return;
     }
 
     setState(() {
-      _isSearching = true;
     });
 
     try {
       final suggestions = await _geocodingService.searchPlaces(query);
       setState(() {
         _searchSuggestions = suggestions;
-        _isSearching = false;
       });
     } catch (e) {
       setState(() {
-        _isSearching = false;
       });
     }
   }
@@ -255,7 +247,6 @@ class _MapScreenState extends State<MapScreen> {
       if (location != null) {
         setState(() {
           _dropLocation = location;
-          _destinationAddress = address;
           _addDropLocationMarker(location);
         });
         _fetchRoute();
@@ -283,12 +274,7 @@ class _MapScreenState extends State<MapScreen> {
                       : location.longitude,
                 ),
               ),
-              padding: const EdgeInsets.only(
-                top: 120, // Account for search bar
-                bottom: 80, // Account for floating action buttons
-                left: 20,
-                right: 20,
-              ),
+              0, // Padding removed
             ),
           );
         }
@@ -319,7 +305,6 @@ class _MapScreenState extends State<MapScreen> {
       if (location != null) {
         setState(() {
           _dropLocation = location;
-          _destinationAddress = description;
           _addDropLocationMarker(location);
         });
         _fetchRoute();
@@ -347,12 +332,7 @@ class _MapScreenState extends State<MapScreen> {
                       : location.longitude,
                 ),
               ),
-              padding: const EdgeInsets.only(
-                top: 120, // Account for search bar
-                bottom: 80, // Account for floating action buttons
-                left: 20,
-                right: 20,
-              ),
+              0, // Padding removed
             ),
           );
         }
@@ -429,12 +409,7 @@ class _MapScreenState extends State<MapScreen> {
     controller.animateCamera(
       CameraUpdate.newLatLngBounds(
         bounds,
-        EdgeInsets.only(
-          top: 120, // Account for search bar
-          bottom: 80, // Account for floating action buttons
-          left: 20,
-          right: 20,
-        ),
+        0, // Padding removed
       ),
     );
   }
