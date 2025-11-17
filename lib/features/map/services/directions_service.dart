@@ -51,13 +51,16 @@ class DirectionsService {
   }) async {
     try {
       // Build the Directions API URL with proper encoding
+      // Adding parameters to ensure road-following routes like Google Maps
+      // The step-level polylines contain detailed road-following paths
       final url = Uri.parse(
         '${MapConstants.directionsApiUrl}'
         '?origin=${origin.latitude},${origin.longitude}'
         '&destination=${destination.latitude},${destination.longitude}'
         '&key=${MapConstants.googleMapsApiKey}'
         '&mode=driving'
-        '&alternatives=$alternatives',
+        '&alternatives=$alternatives'
+        '&units=metric', // Use metric units
       );
 
       final response = await http.get(url);
@@ -72,71 +75,34 @@ class DirectionsService {
           for (var routeData in routes) {
             final route = routeData as Map<String, dynamic>;
             final routeDetails = _parseRoute(route);
-            if (routeDetails != null) {
+            if (routeDetails != null && routeDetails.points.isNotEmpty) {
               routeList.add(routeDetails);
             }
           }
           
-          return routeList;
+          // Only return routes that have valid road-following paths
+          if (routeList.isNotEmpty) {
+            return routeList;
+          } else {
+            print('No valid routes found in API response');
+            return [];
+          }
         } else {
           print('Directions API error: ${data['status']} - ${data['error_message'] ?? 'Unknown error'}');
           return [];
         }
       } else {
         print('HTTP error: ${response.statusCode} - ${response.body}');
-        // Fallback: Create a simple route with straight line
-        return _createFallbackRoute(origin, destination);
+        // Don't create fallback - return empty to show error
+        return [];
       }
     } catch (e) {
       print('Error getting directions: $e');
-      // Fallback: Create a simple route with straight line
-      return _createFallbackRoute(origin, destination);
+      // Don't create fallback - return empty to show error
+      return [];
     }
   }
 
-  // Create a fallback route when API fails - always show a path
-  List<RouteDetails> _createFallbackRoute(LatLng origin, LatLng destination) {
-    // Create a simple straight line path
-    final fallbackPoints = _createInterpolatedPath(origin, destination);
-    final distance = _calculateDistance(origin, destination);
-    
-    return [
-      RouteDetails(
-        points: fallbackPoints,
-        distance: _formatDistance(distance.round()),
-        duration: _formatDuration((distance / 13.9).round()), // Estimate based on average speed
-        distanceValue: distance.round().toString(),
-        durationValue: (distance / 13.9).round(),
-        steps: [
-          NavigationStep(
-            instruction: 'Go straight to destination',
-            distance: _formatDistance(distance.round()),
-            duration: _formatDuration((distance / 13.9).round()),
-            location: destination,
-            maneuver: 'straight',
-            stepNumber: 0,
-          ),
-        ],
-        summary: 'Direct route',
-      ),
-    ];
-  }
-
-  // Create an interpolated path between two points for better visualization
-  List<LatLng> _createInterpolatedPath(LatLng origin, LatLng destination) {
-    List<LatLng> points = [origin];
-    const int segments = 50; // Number of intermediate points
-    
-    for (int i = 1; i < segments; i++) {
-      final ratio = i / segments;
-      final lat = origin.latitude + (destination.latitude - origin.latitude) * ratio;
-      final lng = origin.longitude + (destination.longitude - origin.longitude) * ratio;
-      points.add(LatLng(lat, lng));
-    }
-    
-    points.add(destination);
-    return points;
-  }
 
   // Calculate distance between two points in meters
   double _calculateDistance(LatLng point1, LatLng point2) {
@@ -194,11 +160,14 @@ class DirectionsService {
           final polylineString = stepPolyline['points'] as String;
           
           // Decode step polyline using google_polyline_algorithm package
+          // Step polylines contain detailed road-following paths (not straight lines)
+          // These are the most accurate representation of the actual route
           final decodedPoints = decodePolyline(polylineString);
           if (decodedPoints.isNotEmpty) {
             final stepPoints = decodedPoints
                 .map((point) => LatLng(point[0].toDouble(), point[1].toDouble()))
                 .toList();
+            // Add all step points - these follow roads exactly like Google Maps
             allRoutePoints.addAll(stepPoints);
           }
           
@@ -231,11 +200,15 @@ class DirectionsService {
         }
       }
       
-      // If no detailed points, use overview polyline
+      // Prioritize detailed step polylines which follow roads exactly
+      // Step polylines contain the most accurate road-following paths
       List<LatLng> routePoints = [];
       if (allRoutePoints.isNotEmpty) {
+        // Use detailed step polylines - these follow roads like Google Maps
         routePoints = allRoutePoints;
       } else {
+        // Fallback to overview polyline if step polylines are not available
+        // Overview polyline is less detailed but still follows roads
         final overviewPolyline = route['overview_polyline'] as Map<String, dynamic>;
         final polyline = overviewPolyline['points'] as String;
         
@@ -248,28 +221,11 @@ class DirectionsService {
         }
       }
       
-      // Always ensure we have at least a path - create fallback if empty
+      // If no route points found, return null - don't create straight line fallback
+      // The API should always provide road-following polylines
       if (routePoints.isEmpty) {
-        // Get origin and destination from legs
-        if (legs.isNotEmpty) {
-          final firstLeg = legs[0] as Map<String, dynamic>;
-          final lastLeg = legs[legs.length - 1] as Map<String, dynamic>;
-          final startLocation = firstLeg['start_location'] as Map<String, dynamic>;
-          final endLocation = lastLeg['end_location'] as Map<String, dynamic>;
-          
-          final origin = LatLng(
-            startLocation['lat'] as double,
-            startLocation['lng'] as double,
-          );
-          final dest = LatLng(
-            endLocation['lat'] as double,
-            endLocation['lng'] as double,
-          );
-          
-          routePoints = _createInterpolatedPath(origin, dest);
-        } else {
-          return null;
-        }
+        print('Warning: No route points decoded from API response');
+        return null;
       }
       
       // Use API-provided formatted text, or format if empty

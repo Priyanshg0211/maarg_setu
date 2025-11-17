@@ -406,8 +406,8 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
             }
           }
         } else {
-          // If no routes returned, create a fallback path to always show something
-          _createFallbackPath(origin, destination);
+          // If no routes returned, show error message
+          _showSnackBar('No route found. Please try again or select a different destination.');
         }
         _isLoadingRoute = false;
       });
@@ -419,81 +419,11 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     } catch (e) {
       setState(() {
         _isLoadingRoute = false;
-        // Even on error, show a fallback path
-        if (origin != null && destination != null) {
-          _createFallbackPath(origin, destination);
-        }
       });
-      _showSnackBar('Error fetching route: $e');
+      _showSnackBar('Error fetching route: $e. Please check your internet connection and try again.');
     }
   }
 
-  // Create a fallback path when API fails - ensures path is always visible
-  void _createFallbackPath(LatLng origin, LatLng destination) {
-    _polylines.clear();
-    _polygons.clear();
-    
-    // Create a simple straight line path
-    final fallbackPoints = _createSimplePath(origin, destination);
-    
-    _polylines.add(
-      Polyline(
-        polylineId: const PolylineId('fallback_route'),
-        points: fallbackPoints,
-        color: Colors.blue.withOpacity(0.6),
-        width: 6,
-        patterns: [],
-        geodesic: true,
-        jointType: JointType.round,
-        endCap: Cap.roundCap,
-        startCap: Cap.roundCap,
-        zIndex: 1,
-      ),
-    );
-    
-    // Calculate distance for display
-    final distance = _calculateDistance(origin, destination);
-    final estimatedDuration = (distance / 13.9).round(); // Average speed estimate
-    
-    // Create a simple route details for fallback
-    _routeDetails = RouteDetails(
-      points: fallbackPoints,
-      distance: _formatDistance(distance),
-      duration: _formatDuration(estimatedDuration),
-      distanceValue: distance.round().toString(),
-      durationValue: estimatedDuration,
-      steps: [
-        NavigationStep(
-          instruction: 'Go straight to destination',
-          distance: _formatDistance(distance),
-          duration: _formatDuration(estimatedDuration),
-          location: destination,
-          maneuver: 'straight',
-          stepNumber: 0,
-        ),
-      ],
-      summary: 'Direct route',
-    );
-    
-    _alternativeRoutes = [_routeDetails!];
-    _selectedRouteIndex = 0;
-  }
-
-  // Create a simple interpolated path between two points
-  List<LatLng> _createSimplePath(LatLng origin, LatLng destination) {
-    List<LatLng> points = [origin];
-    const int segments = 30; // Number of intermediate points for smooth line
-    
-    for (int i = 1; i < segments; i++) {
-      final ratio = i / segments;
-      final lat = origin.latitude + (destination.latitude - origin.latitude) * ratio;
-      final lng = origin.longitude + (destination.longitude - origin.longitude) * ratio;
-      points.add(LatLng(lat, lng));
-    }
-    
-    points.add(destination);
-    return points;
-  }
 
   void _updateRoutePolylines() {
     _polylines.clear();
