@@ -1,7 +1,9 @@
 import 'dart:async';
 import 'dart:math' as math;
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:location/location.dart';
 
@@ -56,6 +58,10 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
   
   AnimationController? _markerAnimationController;
   LatLng? _previousLocation;
+  
+  // Cache for arrow icon to avoid recreating it frequently
+  BitmapDescriptor? _cachedArrowIcon;
+  double? _cachedArrowBearing;
 
   @override
   void initState() {
@@ -121,13 +127,17 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
       setState(() {
         _isSnappingLocation = false;
         _currentLocation = locationData;
-        _updateMarker(locationData, snappedLocation: snappedLocation);
+      });
+      await _updateMarker(locationData, snappedLocation: snappedLocation);
+      setState(() {
         _updateRadar(locationData);
       });
     } else {
       setState(() {
         _currentLocation = locationData;
-        _updateMarker(locationData);
+      });
+      await _updateMarker(locationData);
+      setState(() {
         _updateRadar(locationData);
       });
     }
@@ -166,7 +176,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     _markerAnimationController?.forward();
   }
 
-  void _updateMarker(LocationData locationData, {LatLng? snappedLocation}) {
+  Future<void> _updateMarker(LocationData locationData, {LatLng? snappedLocation}) async {
     final latitude = locationData.latitude;
     final longitude = locationData.longitude;
     if (latitude == null || longitude == null) return;
@@ -174,6 +184,36 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     final position = snappedLocation ?? LatLng(latitude, longitude);
     
     _markers.removeWhere((marker) => marker.markerId.value == 'currentLocation');
+    
+    // Calculate rotation angle - point toward drop location if available, otherwise use heading
+    double rotation = locationData.heading ?? 0;
+    if (_dropLocation != null) {
+      final destination = _snappedDropLocation ?? _dropLocation!;
+      rotation = _calculateBearing(position, destination);
+    }
+    
+    // Create arrow icon pointing toward destination
+    BitmapDescriptor icon;
+    if (_dropLocation != null && !_isNavigating) {
+      // Use custom arrow icon when drop location is set
+      // Cache icon if bearing hasn't changed significantly (within 5 degrees)
+      if (_cachedArrowIcon != null && 
+          _cachedArrowBearing != null && 
+          (rotation - _cachedArrowBearing!).abs() < 5) {
+        icon = _cachedArrowIcon!;
+      } else {
+        icon = await _createArrowIcon(rotation);
+        _cachedArrowIcon = icon;
+        _cachedArrowBearing = rotation;
+      }
+    } else {
+      // Use default marker during navigation or when no destination
+      _cachedArrowIcon = null;
+      _cachedArrowBearing = null;
+      icon = BitmapDescriptor.defaultMarkerWithHue(
+        BitmapDescriptor.hueBlue,
+      );
+    }
     
     _markers.add(
       Marker(
@@ -183,14 +223,57 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
           title: 'Your Location',
           snippet: 'You are here',
         ),
-        icon: BitmapDescriptor.defaultMarkerWithHue(
-          BitmapDescriptor.hueBlue,
-        ),
+        icon: icon,
         anchor: const Offset(0.5, 0.5),
         flat: _isNavigating, // Flat marker during navigation
-        rotation: locationData.heading ?? 0,
+        rotation: rotation,
       ),
     );
+  }
+
+  /// Create a custom arrow icon pointing in the specified direction
+  Future<BitmapDescriptor> _createArrowIcon(double bearing) async {
+    // Create a custom painter for the arrow
+    final recorder = ui.PictureRecorder();
+    final canvas = Canvas(recorder);
+    const size = 60.0;
+    
+    // Center the canvas for rotation
+    canvas.translate(size / 2, size / 2);
+    canvas.rotate((bearing - 90) * math.pi / 180); // Rotate to point in bearing direction
+    canvas.translate(-size / 2, -size / 2);
+    
+    // Draw arrow pointing upward (will be rotated by bearing)
+    final paint = Paint()
+      ..color = Colors.blue
+      ..style = PaintingStyle.fill;
+    
+    final strokePaint = Paint()
+      ..color = Colors.white
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 3.0;
+    
+    // Arrow shape: triangle pointing up
+    final path = Path();
+    path.moveTo(size / 2, 0); // Top point (arrow tip)
+    path.lineTo(size, size * 0.8); // Bottom right
+    path.lineTo(size * 0.6, size * 0.8); // Inner right
+    path.lineTo(size * 0.6, size); // Bottom right inner
+    path.lineTo(size * 0.4, size); // Bottom left inner
+    path.lineTo(size * 0.4, size * 0.8); // Inner left
+    path.lineTo(0, size * 0.8); // Bottom left
+    path.close();
+    
+    // Draw arrow
+    canvas.drawPath(path, paint);
+    canvas.drawPath(path, strokePaint);
+    
+    // Convert to image
+    final picture = recorder.endRecording();
+    final image = await picture.toImage(size.toInt(), size.toInt());
+    final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
+    
+    return BitmapDescriptor.fromBytes(bytes!.buffer.asUint8List());
   }
 
   Future<void> _addDropLocationMarker(LatLng position, {bool isDragging = false}) async {
@@ -251,6 +334,11 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
           
           await _addDropLocationMarker(snapped, isDragging: false);
           _fetchRoute(showAlternatives: true);
+          
+          // Update marker to show arrow pointing to drop location
+          if (_currentLocation != null) {
+            await _updateMarker(_currentLocation!);
+          }
         },
       ),
     );
@@ -274,6 +362,11 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
       _formattedDistance = '';
       _formattedETA = '';
     });
+    
+    // Update marker to remove arrow when drop location is removed
+    if (_currentLocation != null) {
+      _updateMarker(_currentLocation!);
+    }
   }
 
   Future<void> _fetchRoute({bool showAlternatives = false}) async {
@@ -482,6 +575,11 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     await _addDropLocationMarker(position);
     _fetchRoute(showAlternatives: true);
     
+    // Update marker to show arrow pointing to drop location
+    if (_currentLocation != null) {
+      await _updateMarker(_currentLocation!);
+    }
+    
     // Update real-time distance and ETA
     if (_currentLocation != null) {
       final currentLat = _currentLocation!.latitude;
@@ -628,6 +726,11 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
         // Fetch route
         _fetchRoute(showAlternatives: true);
         
+        // Update marker to show arrow pointing to drop location
+        if (_currentLocation != null) {
+          await _updateMarker(_currentLocation!);
+        }
+        
         // Update real-time distance and ETA
         if (_currentLocation != null) {
           final currentLat = _currentLocation!.latitude;
@@ -707,6 +810,11 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
         
         // Fetch route
         _fetchRoute(showAlternatives: true);
+        
+        // Update marker to show arrow pointing to drop location
+        if (_currentLocation != null) {
+          await _updateMarker(_currentLocation!);
+        }
         
         // Update real-time distance and ETA
         if (_currentLocation != null) {
