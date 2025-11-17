@@ -14,6 +14,6 @@ void main() async {
     debugPrint('Firebase initialization error: $e');
   }
   
-  // Run the app - AuthWrapper will show login screen first
+  // Run the app - Splash screen will show first, then login, then map
   runApp(const MyApp());
 }

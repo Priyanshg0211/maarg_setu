@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import '../features/auth/presentation/widgets/auth_wrapper.dart';
+import '../features/auth/presentation/screens/splash_screen.dart';
 
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
@@ -10,7 +10,8 @@ class MyApp extends StatelessWidget {
     return MaterialApp(
       title: 'Google Maps',
       theme: ThemeData(primarySwatch: Colors.blue),
-      home: const AuthWrapper(),
+      // Start with splash screen - it will navigate to login or map
+      home: const SplashScreen(),
       debugShowCheckedModeBanner: false,
     );
   }

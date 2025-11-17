@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../widgets/google_sign_in_button.dart';
 import '../../services/auth_service.dart';
+import '../../../../features/map/presentation/screens/map_screen.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -26,11 +27,16 @@ class _LoginScreenState extends State<LoginScreen> {
           const SnackBar(
             content: Text('Signed in successfully!'),
             backgroundColor: Colors.green,
-            duration: Duration(seconds: 2),
+            duration: Duration(seconds: 1),
           ),
         );
-        // Navigation to home screen will be handled automatically by AuthWrapper
-        // when it detects the auth state change
+        // Navigate to map screen after successful login
+        await Future.delayed(const Duration(milliseconds: 500));
+        if (mounted) {
+          Navigator.of(context).pushReplacement(
+            MaterialPageRoute(builder: (context) => const MapScreen()),
+          );
+        }
       } else {
         // User cancelled the sign-in
         if (mounted) {
