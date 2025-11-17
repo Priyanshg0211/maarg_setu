@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:math' as math;
 import 'package:http/http.dart' as http;
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:google_polyline_algorithm/google_polyline_algorithm.dart';
@@ -105,20 +104,6 @@ class DirectionsService {
 
 
   // Calculate distance between two points in meters
-  double _calculateDistance(LatLng point1, LatLng point2) {
-    const double earthRadius = 6371000; // meters
-    final lat1Rad = point1.latitude * math.pi / 180;
-    final lat2Rad = point2.latitude * math.pi / 180;
-    final deltaLatRad = (point2.latitude - point1.latitude) * math.pi / 180;
-    final deltaLngRad = (point2.longitude - point1.longitude) * math.pi / 180;
-    
-    final a = math.sin(deltaLatRad / 2) * math.sin(deltaLatRad / 2) +
-        math.cos(lat1Rad) * math.cos(lat2Rad) *
-        math.sin(deltaLngRad / 2) * math.sin(deltaLngRad / 2);
-    final c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a));
-    
-    return earthRadius * c;
-  }
 
   RouteDetails? _parseRoute(Map<String, dynamic> route) {
     try {
