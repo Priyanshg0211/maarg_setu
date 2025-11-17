@@ -183,7 +183,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
       
       final snapped = await _geocodingService.snapToRoad(position);
       _snappedDropLocation = snapped;
-      position = snapped;
+      position = snapped!;
       
       // Reverse geocode to get address
       final addressInfo = await _geocodingService.reverseGeocode(position);
@@ -222,7 +222,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
           _snappedDropLocation = snapped;
           
           // Reverse geocode to get address
-          final addressInfo = await _geocodingService.reverseGeocode(snapped);
+          final addressInfo = await _geocodingService.reverseGeocode(snapped!);
           _dropLocationAddress = addressInfo?['address'] as String?;
           
           setState(() {
