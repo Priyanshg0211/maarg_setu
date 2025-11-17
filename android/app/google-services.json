@@ -1,0 +1,39 @@
+{
+  "project_info": {
+    "project_number": "832674956861",
+    "project_id": "sagalyze-2902c",
+    "storage_bucket": "sagalyze-2902c.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:832674956861:android:5d2b3d92103113fd184c54",
+        "android_client_info": {
+          "package_name": "com.example.map"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "832674956861-38e700uva2sk4lkt9g2qkaqilvkqpu4d.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCK7_NvFvexUKYaNeDalhmFiNHN5wcOnyI"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "832674956861-38e700uva2sk4lkt9g2qkaqilvkqpu4d.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
