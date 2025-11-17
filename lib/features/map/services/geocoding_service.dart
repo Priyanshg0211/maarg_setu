@@ -4,11 +4,13 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 import '../../../../core/constants/map_constants.dart';
 
 class GeocodingService {
+  /// Geocoding API: Convert address to coordinates
+  /// Uses: https://maps.googleapis.com/maps/api/geocode/json
   Future<LatLng?> geocodeAddress(String address) async {
     try {
       final encodedAddress = Uri.encodeComponent(address);
       final url = Uri.parse(
-        'https://maps.googleapis.com/maps/api/geocode/json'
+        '${MapConstants.geocodingApiUrl}'
         '?address=$encodedAddress'
         '&key=${MapConstants.googleMapsApiKey}',
       );
@@ -18,7 +20,7 @@ class GeocodingService {
       if (response.statusCode == 200) {
         final data = json.decode(response.body) as Map<String, dynamic>;
         
-        if (data['status'] == 'OK' && data['results'].isNotEmpty) {
+        if (data['status'] == 'OK' && data['results'] != null && (data['results'] as List).isNotEmpty) {
           final result = data['results'][0] as Map<String, dynamic>;
           final geometry = result['geometry'] as Map<String, dynamic>;
           final location = geometry['location'] as Map<String, dynamic>;
@@ -28,7 +30,7 @@ class GeocodingService {
           
           return LatLng(lat, lng);
         } else {
-          print('Geocoding API error: ${data['status']}');
+          print('Geocoding API error: ${data['status']} - ${data['error_message'] ?? 'Unknown error'}');
           return null;
         }
       } else {
@@ -41,14 +43,20 @@ class GeocodingService {
     }
   }
 
+  /// Places API Autocomplete: Search for places and addresses
+  /// Uses: https://maps.googleapis.com/maps/api/place/autocomplete/json
   Future<List<Map<String, dynamic>>> searchPlaces(
     String query, {
     LatLng? location,
     double? radius,
   }) async {
     try {
+      if (query.isEmpty) {
+        return [];
+      }
+
       final encodedQuery = Uri.encodeComponent(query);
-      String url = 'https://maps.googleapis.com/maps/api/place/autocomplete/json'
+      String url = '${MapConstants.placesAutocompleteApiUrl}'
           '?input=$encodedQuery'
           '&key=${MapConstants.googleMapsApiKey}';
       
@@ -80,19 +88,26 @@ class GeocodingService {
               .toList();
         } else if (data['status'] == 'ZERO_RESULTS') {
           return [];
+        } else {
+          print('Places API Autocomplete error: ${data['status']} - ${data['error_message'] ?? 'Unknown error'}');
+          return [];
         }
+      } else {
+        print('HTTP error: ${response.statusCode}');
+        return [];
       }
-      return [];
     } catch (e) {
       print('Error searching places: $e');
       return [];
     }
   }
 
+  /// Places API Details: Get detailed information about a place
+  /// Uses: https://maps.googleapis.com/maps/api/place/details/json
   Future<Map<String, dynamic>?> getPlaceDetails(String placeId) async {
     try {
       final url = Uri.parse(
-        'https://maps.googleapis.com/maps/api/place/details/json'
+        '${MapConstants.placeDetailsApiUrl}'
         '?place_id=$placeId'
         '&key=${MapConstants.googleMapsApiKey}'
         '&fields=geometry,name,formatted_address,vicinity',
@@ -116,9 +131,14 @@ class GeocodingService {
             'name': result['name'] as String? ?? '',
             'address': result['formatted_address'] as String? ?? result['vicinity'] as String? ?? '',
           };
+        } else {
+          print('Places API Details error: ${data['status']} - ${data['error_message'] ?? 'Unknown error'}');
+          return null;
         }
+      } else {
+        print('HTTP error: ${response.statusCode}');
+        return null;
       }
-      return null;
     } catch (e) {
       print('Error getting place details: $e');
       return null;
@@ -131,11 +151,12 @@ class GeocodingService {
     return details?['location'] as LatLng?;
   }
 
-  // Reverse geocoding: Get address from coordinates
+  /// Geocoding API: Reverse geocoding - Get address from coordinates
+  /// Uses: https://maps.googleapis.com/maps/api/geocode/json
   Future<Map<String, dynamic>?> reverseGeocode(LatLng location) async {
     try {
       final url = Uri.parse(
-        'https://maps.googleapis.com/maps/api/geocode/json'
+        '${MapConstants.geocodingApiUrl}'
         '?latlng=${location.latitude},${location.longitude}'
         '&key=${MapConstants.googleMapsApiKey}',
       );
@@ -145,16 +166,21 @@ class GeocodingService {
       if (response.statusCode == 200) {
         final data = json.decode(response.body) as Map<String, dynamic>;
         
-        if (data['status'] == 'OK' && data['results'].isNotEmpty) {
+        if (data['status'] == 'OK' && data['results'] != null && (data['results'] as List).isNotEmpty) {
           final result = data['results'][0] as Map<String, dynamic>;
           return {
             'address': result['formatted_address'] as String,
             'location': location,
             'place_id': result['place_id'] as String?,
           };
+        } else {
+          print('Reverse Geocoding API error: ${data['status']} - ${data['error_message'] ?? 'Unknown error'}');
+          return null;
         }
+      } else {
+        print('HTTP error: ${response.statusCode}');
+        return null;
       }
-      return null;
     } catch (e) {
       print('Error reverse geocoding: $e');
       return null;
