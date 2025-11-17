@@ -338,11 +338,15 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     _fetchRoute(showAlternatives: true);
   }
 
+  /// Handle search text changes with debouncing
+  /// Following Google Maps search pattern
   void _onSearchChanged(String query) {
     // Cancel previous timer
     _searchDebounceTimer?.cancel();
     
-    if (query.isEmpty || query.trim().isEmpty) {
+    final trimmedQuery = query.trim();
+    
+    if (trimmedQuery.isEmpty) {
       setState(() {
         _searchSuggestions = [];
         _isSearching = false;
@@ -351,7 +355,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     }
 
     // Require at least 2 characters to search (reduces API calls)
-    if (query.trim().length < 2) {
+    if (trimmedQuery.length < 2) {
       setState(() {
         _searchSuggestions = [];
         _isSearching = false;
@@ -365,18 +369,22 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
       _searchSuggestions = []; // Clear previous results while searching
     });
 
-    // Debounce search - wait 500ms after user stops typing
-    _searchDebounceTimer = Timer(const Duration(milliseconds: 500), () {
-      _performSearch(query.trim());
+    // Debounce search - wait 400ms after user stops typing (Google Maps-like)
+    _searchDebounceTimer = Timer(const Duration(milliseconds: 400), () {
+      _performSearch(trimmedQuery);
     });
   }
 
+  /// Perform the actual search using Places API
+  /// Following the pattern: getSuggestion() from the sample code
   Future<void> _performSearch(String query) async {
-    if (query.isEmpty) {
-      setState(() {
-        _searchSuggestions = [];
-        _isSearching = false;
-      });
+    if (query.isEmpty || query.trim().isEmpty) {
+      if (mounted) {
+        setState(() {
+          _searchSuggestions = [];
+          _isSearching = false;
+        });
+      }
       return;
     }
 
@@ -390,21 +398,22 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
         );
       }
       
+      // Call Places API autocomplete
       final suggestions = await _geocodingService.searchPlaces(
         query,
         location: currentLocation,
-        radius: 50000, // 50km radius
+        radius: 50000, // 50km radius for location bias
       );
       
-      // Only update if the query hasn't changed
-      if (mounted && _destinationController.text == query) {
+      // Only update if the query hasn't changed and widget is still mounted
+      if (mounted && _destinationController.text.trim() == query) {
         setState(() {
           _searchSuggestions = suggestions;
           _isSearching = false;
         });
       }
     } catch (e) {
-      print('Error in search: $e');
+      print('Error performing search: $e');
       if (mounted) {
         setState(() {
           _searchSuggestions = [];
@@ -867,17 +876,23 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                                 IconButton(
                                   icon: const Icon(Icons.clear, color: Colors.grey),
                                   onPressed: () {
+                                    _searchDebounceTimer?.cancel();
                                     _destinationController.clear();
                                     _removeDropLocation();
-                                    setState(() {});
+                                    setState(() {
+                                      _searchSuggestions = [];
+                                      _isSearching = false;
+                                    });
                                   },
                                 ),
                             ],
                           ),
+                          // Loading indicator while searching
                           if (_isSearching)
                             Container(
                               padding: const EdgeInsets.all(16),
                               decoration: const BoxDecoration(
+                                color: Colors.white,
                                 border: Border(
                                   top: BorderSide(color: Colors.grey, width: 0.5),
                                 ),
@@ -887,86 +902,101 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                                   SizedBox(
                                     width: 20,
                                     height: 20,
-                                    child: CircularProgressIndicator(strokeWidth: 2),
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      valueColor: AlwaysStoppedAnimation<Color>(Colors.blue),
+                                    ),
                                   ),
                                   SizedBox(width: 16),
-                                  Text('Searching...', style: TextStyle(color: Colors.grey)),
+                                  Text(
+                                    'Searching...',
+                                    style: TextStyle(
+                                      color: Colors.grey,
+                                      fontSize: 14,
+                                    ),
+                                  ),
                                 ],
                               ),
                             ),
+                          // Search suggestions list (Google Maps-like)
                           if (_searchSuggestions.isNotEmpty && !_isSearching)
                             Container(
-                              constraints: const BoxConstraints(maxHeight: 200),
+                              constraints: const BoxConstraints(maxHeight: 300),
                               decoration: const BoxDecoration(
+                                color: Colors.white,
                                 border: Border(
                                   top: BorderSide(color: Colors.grey, width: 0.5),
                                 ),
                               ),
                               child: ListView.builder(
                                 shrinkWrap: true,
+                                physics: const ClampingScrollPhysics(),
                                 itemCount: _searchSuggestions.length,
                                 itemBuilder: (context, index) {
                                   final suggestion = _searchSuggestions[index];
-                                  return InkWell(
-                                    onTap: () {
-                                      _setDestinationFromPlaceId(
-                                        suggestion['place_id'] as String,
-                                        suggestion['description'] as String,
-                                      );
-                                    },
-                                    child: Padding(
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 16,
-                                        vertical: 12,
-                                      ),
-                                      child: Row(
-                                        children: [
-                                          const Icon(
-                                            Icons.location_on,
-                                            color: Colors.red,
-                                            size: 24,
-                                          ),
-                                          const SizedBox(width: 12),
-                                          Expanded(
-                                            child: Column(
-                                              crossAxisAlignment: CrossAxisAlignment.start,
-                                              mainAxisSize: MainAxisSize.min,
-                                              children: [
-                                                // Main text (like Google Maps)
-                                                if (suggestion['structured_formatting'] != null)
+                                  final description = suggestion['description'] as String;
+                                  final structuredFormatting = suggestion['structured_formatting'] as Map<String, dynamic>?;
+                                  
+                                  return Material(
+                                    color: Colors.transparent,
+                                    child: InkWell(
+                                      onTap: () {
+                                        _setDestinationFromPlaceId(
+                                          suggestion['place_id'] as String,
+                                          description,
+                                        );
+                                      },
+                                      child: Padding(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 16,
+                                          vertical: 12,
+                                        ),
+                                        child: Row(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            const Icon(
+                                              Icons.location_on,
+                                              color: Colors.red,
+                                              size: 24,
+                                            ),
+                                            const SizedBox(width: 12),
+                                            Expanded(
+                                              child: Column(
+                                                crossAxisAlignment: CrossAxisAlignment.start,
+                                                mainAxisSize: MainAxisSize.min,
+                                                children: [
+                                                  // Main text (like Google Maps)
                                                   Text(
-                                                    (suggestion['structured_formatting'] as Map<String, dynamic>)['main_text'] as String? ?? 
-                                                    suggestion['description'] as String,
+                                                    structuredFormatting != null
+                                                        ? (structuredFormatting['main_text'] as String? ?? description)
+                                                        : description,
                                                     style: const TextStyle(
                                                       fontSize: 15,
                                                       fontWeight: FontWeight.w500,
                                                       color: Colors.black87,
-                                                    ),
-                                                  )
-                                                else
-                                                  Text(
-                                                    suggestion['description'] as String,
-                                                    style: const TextStyle(
-                                                      fontSize: 15,
-                                                      fontWeight: FontWeight.w500,
-                                                      color: Colors.black87,
-                                                    ),
-                                                  ),
-                                                // Secondary text (like Google Maps)
-                                                if (suggestion['structured_formatting'] != null)
-                                                  Text(
-                                                    (suggestion['structured_formatting'] as Map<String, dynamic>)['secondary_text'] as String? ?? '',
-                                                    style: TextStyle(
-                                                      fontSize: 13,
-                                                      color: Colors.grey[600],
                                                     ),
                                                     maxLines: 1,
                                                     overflow: TextOverflow.ellipsis,
                                                   ),
-                                              ],
+                                                  // Secondary text (like Google Maps)
+                                                  if (structuredFormatting != null)
+                                                    Padding(
+                                                      padding: const EdgeInsets.only(top: 2),
+                                                      child: Text(
+                                                        structuredFormatting['secondary_text'] as String? ?? '',
+                                                        style: TextStyle(
+                                                          fontSize: 13,
+                                                          color: Colors.grey[600],
+                                                        ),
+                                                        maxLines: 1,
+                                                        overflow: TextOverflow.ellipsis,
+                                                      ),
+                                                    ),
+                                                ],
+                                              ),
                                             ),
-                                          ),
-                                        ],
+                                          ],
+                                        ),
                                       ),
                                     ),
                                   );

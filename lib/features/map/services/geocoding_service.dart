@@ -45,6 +45,7 @@ class GeocodingService {
 
   /// Places API Autocomplete: Search for places and addresses
   /// Uses: https://maps.googleapis.com/maps/api/place/autocomplete/json
+  /// Implementation following Google Maps pattern
   Future<List<Map<String, dynamic>>> searchPlaces(
     String query, {
     LatLng? location,
@@ -55,63 +56,53 @@ class GeocodingService {
         return [];
       }
 
+      // Build the API request URL
       final encodedQuery = Uri.encodeComponent(query.trim());
-      String url = '${MapConstants.placesAutocompleteApiUrl}'
-          '?input=$encodedQuery'
-          '&key=${MapConstants.googleMapsApiKey}';
+      String baseURL = MapConstants.placesAutocompleteApiUrl;
+      String request = '$baseURL?input=$encodedQuery&key=${MapConstants.googleMapsApiKey}';
       
       // Add location bias for better results (like Google Maps)
       if (location != null) {
-        url += '&location=${location.latitude},${location.longitude}';
-        url += '&radius=${radius ?? 50000}'; // 50km default radius
+        request += '&location=${location.latitude},${location.longitude}';
+        if (radius != null) {
+          request += '&radius=$radius';
+        }
       }
       
-      // Use types parameter correctly - separate with pipe, no parentheses
-      // This searches for both addresses (geocode) and establishments (places)
-      url += '&types=geocode|establishment';
+      // Add components to restrict search (optional - can be removed if you want global search)
+      // request += '&components=country:in'; // Uncomment to restrict to specific country
 
-      print('Places API URL: $url'); // Debug log
-
-      final response = await http.get(Uri.parse(url));
-
-      print('Places API Response Status: ${response.statusCode}'); // Debug log
+      final response = await http.get(Uri.parse(request));
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body) as Map<String, dynamic>;
         
-        print('Places API Response: ${data['status']}'); // Debug log
-        
         if (data['status'] == 'OK' && data['predictions'] != null) {
-          final predictions = data['predictions'] as List;
-          print('Found ${predictions.length} predictions'); // Debug log
+          final predictions = data['predictions'] as List<dynamic>;
           
-          return predictions
-              .map((prediction) {
-                final pred = prediction as Map<String, dynamic>;
-                return {
-                  'description': pred['description'] as String,
-                  'place_id': pred['place_id'] as String,
-                  'structured_formatting': pred['structured_formatting'] as Map<String, dynamic>?,
-                };
-              })
-              .toList();
+          return predictions.map((prediction) {
+            final pred = prediction as Map<String, dynamic>;
+            return {
+              'description': pred['description'] as String,
+              'place_id': pred['place_id'] as String,
+              'structured_formatting': pred['structured_formatting'] as Map<String, dynamic>?,
+              'types': pred['types'] as List<dynamic>?,
+            };
+          }).toList();
         } else if (data['status'] == 'ZERO_RESULTS') {
-          print('No results found for query: $query');
           return [];
         } else {
-          final errorMsg = data['error_message'] ?? 'Unknown error';
-          print('Places API Autocomplete error: ${data['status']} - $errorMsg');
-          print('Response body: ${response.body}'); // Debug log
+          // Log error for debugging
+          final errorMsg = data['error_message'] ?? data['status'] ?? 'Unknown error';
+          print('Places API error: $errorMsg');
           return [];
         }
       } else {
         print('HTTP error: ${response.statusCode}');
-        print('Response body: ${response.body}'); // Debug log
         return [];
       }
-    } catch (e, stackTrace) {
+    } catch (e) {
       print('Error searching places: $e');
-      print('Stack trace: $stackTrace');
       return [];
     }
   }
