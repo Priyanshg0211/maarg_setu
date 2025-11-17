@@ -40,6 +40,7 @@ class _MapScreenState extends State<MapScreen> {
   static const LatLng _defaultCenter = LatLng(21.1904494, 81.2849169);
   
   final Set<Marker> _markers = {};
+  final Set<Circle> _circles = {};
 
   @override
   void initState() {
@@ -77,6 +78,7 @@ class _MapScreenState extends State<MapScreen> {
       setState(() {
         currentLocation = locationData;
         _updateMarker(locationData);
+        _updateRadar(locationData);
       });
 
       _moveCameraToLocation(locationData);
@@ -86,6 +88,7 @@ class _MapScreenState extends State<MapScreen> {
         setState(() {
           currentLocation = newLocation;
           _updateMarker(newLocation);
+          _updateRadar(newLocation);
         });
       });
     } catch (e) {
@@ -105,6 +108,20 @@ class _MapScreenState extends State<MapScreen> {
           snippet: 'You are here',
         ),
         icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure),
+      ),
+    );
+  }
+
+  void _updateRadar(LocationData locationData) {
+    _circles.clear();
+    _circles.add(
+      Circle(
+        circleId: const CircleId('radar'),
+        center: LatLng(locationData.latitude!, locationData.longitude!),
+        radius: 250, // 250m radius = 500m diameter (500m x 500m coverage area)
+        fillColor: Colors.blue.withOpacity(0.2),
+        strokeColor: Colors.blue,
+        strokeWidth: 2,
       ),
     );
   }
@@ -131,7 +148,7 @@ class _MapScreenState extends State<MapScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Live Location'),
+        title: const Text('Live Location with Radar'),
         backgroundColor: Colors.blue,
         actions: [
           IconButton(
@@ -150,6 +167,7 @@ class _MapScreenState extends State<MapScreen> {
           zoom: 15.0,
         ),
         markers: _markers,
+        circles: _circles,
         myLocationEnabled: true,
         myLocationButtonEnabled: true,
         zoomControlsEnabled: true,
