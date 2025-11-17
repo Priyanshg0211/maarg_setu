@@ -42,6 +42,12 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
   int _currentStepIndex = 0;
   bool _showAlternatives = false;
   String? _dropLocationAddress;
+  
+  // Real-time distance and ETA
+  double? _realTimeDistance; // in meters
+  int? _realTimeETA; // in seconds
+  String _formattedDistance = '';
+  String _formattedETA = '';
 
   final Set<Marker> _markers = {};
   final Set<Circle> _circles = {};
@@ -142,6 +148,11 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
       _rerouteIfNeeded(newLocation);
     } else if (_dropLocation != null && !_isLoadingRoute) {
       _fetchRoute();
+    }
+    
+    // Update real-time distance and ETA
+    if (_dropLocation != null) {
+      _updateRealTimeDistanceAndETA(newLocation);
     }
   }
 
@@ -253,6 +264,10 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
       _markers.removeWhere((marker) => marker.markerId.value == 'dropLocation');
       _polylines.clear();
       _searchSuggestions = [];
+      _realTimeDistance = null;
+      _realTimeETA = null;
+      _formattedDistance = '';
+      _formattedETA = '';
     });
   }
 
@@ -284,6 +299,15 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
           _routeDetails = routes[0];
           _updateRoutePolylines();
           _fitRoute();
+          
+          // Update real-time distance and ETA with route data
+          if (_currentLocation != null) {
+            final currentLat = _currentLocation!.latitude;
+            final currentLng = _currentLocation!.longitude;
+            if (currentLat != null && currentLng != null) {
+              _updateRealTimeDistanceAndETA(LatLng(currentLat, currentLng));
+            }
+          }
         }
         _isLoadingRoute = false;
       });
@@ -326,6 +350,15 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
       _routeDetails = _alternativeRoutes[index];
       _currentStepIndex = 0;
       _updateRoutePolylines();
+      
+      // Update real-time distance and ETA with selected route
+      if (_currentLocation != null) {
+        final currentLat = _currentLocation!.latitude;
+        final currentLng = _currentLocation!.longitude;
+        if (currentLat != null && currentLng != null) {
+          _updateRealTimeDistanceAndETA(LatLng(currentLat, currentLng));
+        }
+      }
     });
   }
 
@@ -336,6 +369,15 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     });
     await _addDropLocationMarker(position);
     _fetchRoute(showAlternatives: true);
+    
+    // Update real-time distance and ETA
+    if (_currentLocation != null) {
+      final currentLat = _currentLocation!.latitude;
+      final currentLng = _currentLocation!.longitude;
+      if (currentLat != null && currentLng != null) {
+        _updateRealTimeDistanceAndETA(LatLng(currentLat, currentLng));
+      }
+    }
   }
 
   /// Handle search text changes with debouncing
@@ -473,6 +515,15 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
         
         // Fetch route
         _fetchRoute(showAlternatives: true);
+        
+        // Update real-time distance and ETA
+        if (_currentLocation != null) {
+          final currentLat = _currentLocation!.latitude;
+          final currentLng = _currentLocation!.longitude;
+          if (currentLat != null && currentLng != null) {
+            _updateRealTimeDistanceAndETA(LatLng(currentLat, currentLng));
+          }
+        }
       } else {
         _showSnackBar('Could not find the address. Please try again.');
         setState(() {
@@ -544,6 +595,15 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
         
         // Fetch route
         _fetchRoute(showAlternatives: true);
+        
+        // Update real-time distance and ETA
+        if (_currentLocation != null) {
+          final currentLat = _currentLocation!.latitude;
+          final currentLng = _currentLocation!.longitude;
+          if (currentLat != null && currentLng != null) {
+            _updateRealTimeDistanceAndETA(LatLng(currentLat, currentLng));
+          }
+        }
       } else {
         _showSnackBar('Could not find the place. Please try again.');
         setState(() {
@@ -726,6 +786,144 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     final c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a));
     
     return earthRadius * c;
+  }
+
+  /// Update real-time distance and ETA between current location and drop location
+  void _updateRealTimeDistanceAndETA(LatLng currentLocation) {
+    if (_dropLocation == null) {
+      setState(() {
+        _realTimeDistance = null;
+        _realTimeETA = null;
+        _formattedDistance = '';
+        _formattedETA = '';
+      });
+      return;
+    }
+
+    final destination = _snappedDropLocation ?? _dropLocation!;
+    
+    // Calculate straight-line distance
+    final straightDistance = _calculateDistance(currentLocation, destination);
+    
+    // If we have route details, use route-based distance and ETA
+    if (_routeDetails != null) {
+      // Calculate remaining distance along the route
+      final remainingDistance = _calculateRemainingRouteDistance(currentLocation);
+      final remainingETA = _calculateRemainingRouteETA(remainingDistance);
+      
+      setState(() {
+        _realTimeDistance = remainingDistance;
+        _realTimeETA = remainingETA;
+        _formattedDistance = _formatDistance(remainingDistance);
+        _formattedETA = _formatDuration(remainingETA);
+      });
+    } else {
+      // Use straight-line distance and estimate ETA based on average speed
+      // Average driving speed: ~50 km/h = ~13.9 m/s
+      const double averageSpeedMetersPerSecond = 13.9;
+      final estimatedETA = (straightDistance / averageSpeedMetersPerSecond).round();
+      
+      setState(() {
+        _realTimeDistance = straightDistance;
+        _realTimeETA = estimatedETA;
+        _formattedDistance = _formatDistance(straightDistance);
+        _formattedETA = _formatDuration(estimatedETA);
+      });
+    }
+  }
+
+  /// Calculate remaining distance along the route from current location
+  double _calculateRemainingRouteDistance(LatLng currentLocation) {
+    if (_routeDetails == null || _routeDetails!.points.isEmpty) {
+      return _realTimeDistance ?? 0;
+    }
+
+    // Find the nearest point on the route and its index
+    double minDistance = double.infinity;
+    int nearestIndex = 0;
+    
+    for (int i = 0; i < _routeDetails!.points.length; i++) {
+      final distance = _calculateDistance(currentLocation, _routeDetails!.points[i]);
+      if (distance < minDistance) {
+        minDistance = distance;
+        nearestIndex = i;
+      }
+    }
+    
+    final nearestPoint = _routeDetails!.points[nearestIndex];
+    final destination = _snappedDropLocation ?? _dropLocation!;
+    
+    // Calculate distance from nearest point to destination along route
+    double remainingDistance = 0;
+    
+    // Sum distances from nearest point to destination along route
+    for (int i = nearestIndex; i < _routeDetails!.points.length - 1; i++) {
+      remainingDistance += _calculateDistance(
+        _routeDetails!.points[i],
+        _routeDetails!.points[i + 1],
+      );
+    }
+    
+    // Add distance from current location to nearest route point
+    remainingDistance += _calculateDistance(currentLocation, nearestPoint);
+    
+    // Add distance from last route point to destination
+    if (_routeDetails!.points.isNotEmpty) {
+      remainingDistance += _calculateDistance(
+        _routeDetails!.points.last,
+        destination,
+      );
+    }
+    
+    return remainingDistance;
+  }
+
+  /// Calculate remaining ETA based on remaining distance and route speed
+  int _calculateRemainingRouteETA(double remainingDistance) {
+    if (_routeDetails == null || _routeDetails!.distanceValue.isEmpty) {
+      // Fallback: estimate based on average speed
+      const double averageSpeedMetersPerSecond = 13.9;
+      return (remainingDistance / averageSpeedMetersPerSecond).round();
+    }
+
+    // Calculate average speed from route
+    final totalDistance = double.tryParse(_routeDetails!.distanceValue) ?? 0;
+    final totalDuration = _routeDetails!.durationValue;
+    
+    if (totalDistance > 0 && totalDuration > 0) {
+      final averageSpeed = totalDistance / totalDuration; // meters per second
+      return (remainingDistance / averageSpeed).round();
+    }
+    
+    // Fallback: estimate based on average speed
+    const double averageSpeedMetersPerSecond = 13.9;
+    return (remainingDistance / averageSpeedMetersPerSecond).round();
+  }
+
+  /// Format distance for display
+  String _formatDistance(double meters) {
+    if (meters < 1000) {
+      return '${meters.round()} m';
+    } else {
+      return '${(meters / 1000).toStringAsFixed(1)} km';
+    }
+  }
+
+  /// Format duration for display
+  String _formatDuration(int seconds) {
+    if (seconds < 60) {
+      return '$seconds sec';
+    } else if (seconds < 3600) {
+      return '${(seconds / 60).round()} min';
+    } else {
+      final hours = seconds ~/ 3600;
+      final minutes = (seconds % 3600) ~/ 60;
+      if (minutes == 0) {
+        return '$hours hr';
+      } else {
+        return '$hours hr $minutes min';
+      }
+    }
   }
 
   void _startNavigation() {
@@ -1011,6 +1209,111 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
               ),
             ),
 
+          // Real-time Distance and ETA Card
+          if (_dropLocation != null && _formattedDistance.isNotEmpty && !_isNavigating)
+            Positioned(
+              top: 0,
+              left: 0,
+              right: 0,
+              child: SafeArea(
+                child: Padding(
+                  padding: const EdgeInsets.only(top: 100, left: 16, right: 16),
+                  child: Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(12),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.15),
+                          blurRadius: 10,
+                          offset: const Offset(0, 2),
+                        ),
+                      ],
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceAround,
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  Icon(
+                                    Icons.straighten,
+                                    size: 20,
+                                    color: Colors.blue[700],
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    'Distance',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: Colors.grey[600],
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                _formattedDistance,
+                                style: TextStyle(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.blue[700],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        Container(
+                          width: 1,
+                          height: 40,
+                          color: Colors.grey[300],
+                        ),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  Icon(
+                                    Icons.access_time,
+                                    size: 20,
+                                    color: Colors.green[700],
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    'ETA',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: Colors.grey[600],
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                _formattedETA,
+                                style: TextStyle(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.green[700],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+
           // Loading Indicator
           if (_isLoadingRoute || _isSnappingLocation)
             const Center(
@@ -1077,12 +1380,43 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                                     fontWeight: FontWeight.bold,
                                   ),
                                 ),
-                                Text(
-                                  '${_currentStep!.distance} • ${_currentStep!.duration}',
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    color: Colors.grey[600],
-                                  ),
+                                Row(
+                                  children: [
+                                    if (_formattedDistance.isNotEmpty) ...[
+                                      Text(
+                                        _formattedDistance,
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          color: Colors.grey[600],
+                                          fontWeight: FontWeight.w500,
+                                        ),
+                                      ),
+                                      Text(
+                                        ' • ',
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          color: Colors.grey[600],
+                                        ),
+                                      ),
+                                    ],
+                                    if (_formattedETA.isNotEmpty)
+                                      Text(
+                                        'ETA: $_formattedETA',
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          color: Colors.grey[600],
+                                          fontWeight: FontWeight.w500,
+                                        ),
+                                      ),
+                                    if (_formattedDistance.isEmpty && _formattedETA.isEmpty)
+                                      Text(
+                                        '${_currentStep!.distance} • ${_currentStep!.duration}',
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          color: Colors.grey[600],
+                                        ),
+                                      ),
+                                  ],
                                 ),
                               ],
                             ),
