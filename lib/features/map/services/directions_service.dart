@@ -4,8 +4,24 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:google_polyline_algorithm/google_polyline_algorithm.dart';
 import '../../../../core/constants/map_constants.dart';
 
+class RouteDetails {
+  final List<LatLng> points;
+  final String distance;
+  final String duration;
+  final String distanceValue; // in meters
+  final int durationValue; // in seconds
+
+  RouteDetails({
+    required this.points,
+    required this.distance,
+    required this.duration,
+    required this.distanceValue,
+    required this.durationValue,
+  });
+}
+
 class DirectionsService {
-  Future<List<LatLng>?> getRoutePoints({
+  Future<RouteDetails?> getRoute({
     required LatLng origin,
     required LatLng destination,
   }) async {
@@ -52,9 +68,27 @@ class DirectionsService {
               }
             }
             
+            // Get route summary (distance and duration)
+            String distance = '';
+            String duration = '';
+            String distanceValue = '0';
+            int durationValue = 0;
+            
+            if (legs.isNotEmpty) {
+              final firstLeg = legs[0] as Map<String, dynamic>;
+              final distanceInfo = firstLeg['distance'] as Map<String, dynamic>;
+              final durationInfo = firstLeg['duration'] as Map<String, dynamic>;
+              
+              distance = distanceInfo['text'] as String;
+              duration = durationInfo['text'] as String;
+              distanceValue = (distanceInfo['value'] as int).toString();
+              durationValue = durationInfo['value'] as int;
+            }
+            
             // If detailed steps are available, use them; otherwise fall back to overview
+            List<LatLng> routePoints = [];
             if (allRoutePoints.isNotEmpty) {
-              return allRoutePoints;
+              routePoints = allRoutePoints;
             } else {
               // Fallback to overview polyline if steps are not available
               final overviewPolyline = route['overview_polyline'] as Map<String, dynamic>;
@@ -62,10 +96,20 @@ class DirectionsService {
               final decodedPoints = decodePolyline(polyline);
               
               if (decodedPoints.isNotEmpty) {
-                return decodedPoints
+                routePoints = decodedPoints
                     .map((point) => LatLng(point[0].toDouble(), point[1].toDouble()))
                     .toList();
               }
+            }
+            
+            if (routePoints.isNotEmpty) {
+              return RouteDetails(
+                points: routePoints,
+                distance: distance,
+                duration: duration,
+                distanceValue: distanceValue,
+                durationValue: durationValue,
+              );
             }
           }
         } else {
@@ -80,6 +124,15 @@ class DirectionsService {
       print('Error getting directions: $e');
       return null;
     }
+  }
+
+  // Legacy method for backward compatibility
+  Future<List<LatLng>?> getRoutePoints({
+    required LatLng origin,
+    required LatLng destination,
+  }) async {
+    final route = await getRoute(origin: origin, destination: destination);
+    return route?.points;
   }
 
   // Fallback: Create a simple straight line if API fails

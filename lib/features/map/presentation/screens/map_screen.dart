@@ -29,6 +29,7 @@ class _MapScreenState extends State<MapScreen> {
   LatLng? _dropLocation;
   bool _isLoadingRoute = false;
   List<Map<String, dynamic>> _searchSuggestions = [];
+  RouteDetails? _routeDetails;
 
   final Set<Marker> _markers = {};
   final Set<Circle> _circles = {};
@@ -78,7 +79,7 @@ class _MapScreenState extends State<MapScreen> {
       _updateRadar(locationData);
     });
 
-    if (moveCamera) {
+    if (moveCamera && _dropLocation == null) {
       _moveCameraToLocation(locationData);
     }
 
@@ -105,15 +106,14 @@ class _MapScreenState extends State<MapScreen> {
           snippet: 'You are here',
         ),
         icon: BitmapDescriptor.defaultMarkerWithHue(
-          BitmapDescriptor.hueAzure,
+          BitmapDescriptor.hueBlue,
         ),
+        anchor: const Offset(0.5, 0.5),
       ),
     );
   }
 
   void _addDropLocationMarker(LatLng position) {
-    // Optional: Keep marker minimal or remove it entirely
-    // For now, keeping a subtle marker
     _markers.removeWhere((marker) => marker.markerId.value == 'dropLocation');
     
     _markers.add(
@@ -122,11 +122,15 @@ class _MapScreenState extends State<MapScreen> {
         position: position,
         infoWindow: const InfoWindow(
           title: 'Destination',
-          snippet: 'Route destination',
+          snippet: 'Tap to remove',
         ),
         icon: BitmapDescriptor.defaultMarkerWithHue(
           BitmapDescriptor.hueRed,
         ),
+        anchor: const Offset(0.5, 1.0),
+        onTap: () {
+          _showRemoveDestinationDialog();
+        },
       ),
     );
   }
@@ -134,6 +138,7 @@ class _MapScreenState extends State<MapScreen> {
   void _removeDropLocation() {
     setState(() {
       _dropLocation = null;
+      _routeDetails = null;
       _destinationController.clear();
       _markers.removeWhere((marker) => marker.markerId.value == 'dropLocation');
       _polylines.clear();
@@ -154,28 +159,32 @@ class _MapScreenState extends State<MapScreen> {
 
     try {
       final origin = LatLng(currentLat, currentLng);
-      final routePoints = await _directionsService.getRoutePoints(
+      final route = await _directionsService.getRoute(
         origin: origin,
         destination: _dropLocation!,
       );
 
       setState(() {
         _polylines.clear();
-        if (routePoints != null && routePoints.isNotEmpty) {
+        if (route != null && route.points.isNotEmpty) {
+          _routeDetails = route;
           // Draw the detailed route path like Google Maps
           _polylines.add(
             Polyline(
               polylineId: const PolylineId('route'),
-              points: routePoints,
+              points: route.points,
               color: const Color(0xFF4285F4), // Google Maps blue color
-              width: 6, // Slightly thicker for better visibility
+              width: 6,
               patterns: [],
-              geodesic: true, // Follows the curvature of the Earth
-              jointType: JointType.round, // Smooth rounded joints
-              endCap: Cap.roundCap, // Rounded line ends
+              geodesic: true,
+              jointType: JointType.round,
+              endCap: Cap.roundCap,
               startCap: Cap.roundCap,
             ),
           );
+          
+          // Auto-fit route to show both locations
+          _fitRoute();
         } else {
           // Fallback: draw straight line if API fails
           final fallbackPoints = _directionsService.createStraightLine(
@@ -220,17 +229,13 @@ class _MapScreenState extends State<MapScreen> {
       return;
     }
 
-    setState(() {
-    });
-
     try {
       final suggestions = await _geocodingService.searchPlaces(query);
       setState(() {
         _searchSuggestions = suggestions;
       });
     } catch (e) {
-      setState(() {
-      });
+      // Silently handle errors
     }
   }
 
@@ -250,34 +255,6 @@ class _MapScreenState extends State<MapScreen> {
           _addDropLocationMarker(location);
         });
         _fetchRoute();
-        
-        // Move camera to show both locations
-        if (_currentLocation != null) {
-          final controller = await _controller.future;
-          controller.animateCamera(
-            CameraUpdate.newLatLngBounds(
-              LatLngBounds(
-                southwest: LatLng(
-                  _currentLocation!.latitude! < location.latitude
-                      ? _currentLocation!.latitude!
-                      : location.latitude,
-                  _currentLocation!.longitude! < location.longitude
-                      ? _currentLocation!.longitude!
-                      : location.longitude,
-                ),
-                northeast: LatLng(
-                  _currentLocation!.latitude! > location.latitude
-                      ? _currentLocation!.latitude!
-                      : location.latitude,
-                  _currentLocation!.longitude! > location.longitude
-                      ? _currentLocation!.longitude!
-                      : location.longitude,
-                ),
-              ),
-              0, // Padding removed
-            ),
-          );
-        }
       } else {
         _showSnackBar('Could not find the address. Please try again.');
         setState(() {
@@ -308,34 +285,6 @@ class _MapScreenState extends State<MapScreen> {
           _addDropLocationMarker(location);
         });
         _fetchRoute();
-        
-        // Move camera to show both locations
-        if (_currentLocation != null) {
-          final controller = await _controller.future;
-          controller.animateCamera(
-            CameraUpdate.newLatLngBounds(
-              LatLngBounds(
-                southwest: LatLng(
-                  _currentLocation!.latitude! < location.latitude
-                      ? _currentLocation!.latitude!
-                      : location.latitude,
-                  _currentLocation!.longitude! < location.longitude
-                      ? _currentLocation!.longitude!
-                      : location.longitude,
-                ),
-                northeast: LatLng(
-                  _currentLocation!.latitude! > location.latitude
-                      ? _currentLocation!.latitude!
-                      : location.latitude,
-                  _currentLocation!.longitude! > location.longitude
-                      ? _currentLocation!.longitude!
-                      : location.longitude,
-                ),
-              ),
-              0, // Padding removed
-            ),
-          );
-        }
       } else {
         _showSnackBar('Could not find the place. Please try again.');
         setState(() {
@@ -362,9 +311,9 @@ class _MapScreenState extends State<MapScreen> {
           circleId: const CircleId('radar'),
           center: LatLng(latitude, longitude),
           radius: MapConstants.radarRadius,
-          fillColor: Colors.blue.withOpacity(0.2),
-          strokeColor: Colors.blue,
-          strokeWidth: 2,
+          fillColor: Colors.blue.withOpacity(0.1),
+          strokeColor: Colors.blue.withOpacity(0.3),
+          strokeWidth: 1,
         ),
       );
   }
@@ -409,36 +358,48 @@ class _MapScreenState extends State<MapScreen> {
     controller.animateCamera(
       CameraUpdate.newLatLngBounds(
         bounds,
-        0, // Padding removed
+        100, // Padding for better view
       ),
     );
   }
 
   void _showSnackBar(String message) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        behavior: SnackBarBehavior.floating,
+        duration: const Duration(seconds: 3),
+      ),
+    );
+  }
+
+  void _showRemoveDestinationDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Remove Destination'),
+        content: const Text('Do you want to remove the destination?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+              _removeDropLocation();
+            },
+            child: const Text('Remove'),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Live Location with Route'),
-        backgroundColor: Colors.blue,
-        actions: [
-          if (_dropLocation != null)
-            IconButton(
-              icon: const Icon(Icons.clear),
-              onPressed: _removeDropLocation,
-              tooltip: 'Clear Drop Location',
-            ),
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: _initLocationUpdates,
-            tooltip: 'Refresh Location',
-          ),
-        ],
-      ),
       body: Stack(
         children: [
           GoogleMap(
@@ -456,134 +417,276 @@ class _MapScreenState extends State<MapScreen> {
             circles: _circles,
             polylines: _polylines,
             myLocationEnabled: true,
-            myLocationButtonEnabled: true,
-            zoomControlsEnabled: true,
+            myLocationButtonEnabled: false, // We'll use custom button
+            zoomControlsEnabled: false, // We'll use custom controls
             compassEnabled: true,
+            mapToolbarEnabled: false,
             onMapCreated: (controller) {
               _controller.complete(controller);
             },
             onTap: _onMapTap,
           ),
-          // Destination Search Bar
-          Positioned(
-            top: 10,
-            left: 10,
-            right: 10,
-            child: Card(
-              elevation: 4,
+          
+          // Modern Search Bar (Google Maps style)
+          SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.all(16.0),
               child: Column(
-                mainAxisSize: MainAxisSize.min,
                 children: [
-                  TextField(
-                    controller: _destinationController,
-                    focusNode: _destinationFocusNode,
-                    decoration: InputDecoration(
-                      hintText: 'Enter destination address',
-                      prefixIcon: const Icon(Icons.search),
-                      suffixIcon: _dropLocation != null || _destinationController.text.isNotEmpty
-                          ? IconButton(
-                              icon: const Icon(Icons.clear),
-                              onPressed: () {
-                                _destinationController.clear();
-                                _removeDropLocation();
-                                setState(() {});
+                  // Search Container
+                  Container(
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(8),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.1),
+                          blurRadius: 10,
+                          offset: const Offset(0, 2),
+                        ),
+                      ],
+                    ),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Row(
+                          children: [
+                            const Padding(
+                              padding: EdgeInsets.only(left: 16, right: 12),
+                              child: Icon(Icons.search, color: Colors.grey),
+                            ),
+                            Expanded(
+                              child: TextField(
+                                controller: _destinationController,
+                                focusNode: _destinationFocusNode,
+                                decoration: const InputDecoration(
+                                  hintText: 'Search for places or tap on map',
+                                  border: InputBorder.none,
+                                  contentPadding: EdgeInsets.symmetric(vertical: 16),
+                                ),
+                                onChanged: (value) {
+                                  if (value.isNotEmpty) {
+                                    _searchDestination(value);
+                                  } else {
+                                    setState(() {
+                                      _searchSuggestions = [];
+                                    });
+                                  }
+                                },
+                                onSubmitted: (value) {
+                                  if (value.isNotEmpty) {
+                                    _setDestinationFromAddress(value);
+                                  }
+                                },
+                              ),
+                            ),
+                            if (_dropLocation != null || _destinationController.text.isNotEmpty)
+                              IconButton(
+                                icon: const Icon(Icons.clear, color: Colors.grey),
+                                onPressed: () {
+                                  _destinationController.clear();
+                                  _removeDropLocation();
+                                  setState(() {});
+                                },
+                              ),
+                          ],
+                        ),
+                        // Search Suggestions
+                        if (_searchSuggestions.isNotEmpty)
+                          Container(
+                            constraints: const BoxConstraints(maxHeight: 200),
+                            decoration: const BoxDecoration(
+                              border: Border(
+                                top: BorderSide(color: Colors.grey, width: 0.5),
+                              ),
+                            ),
+                            child: ListView.builder(
+                              shrinkWrap: true,
+                              itemCount: _searchSuggestions.length,
+                              itemBuilder: (context, index) {
+                                final suggestion = _searchSuggestions[index];
+                                return InkWell(
+                                  onTap: () {
+                                    _setDestinationFromPlaceId(
+                                      suggestion['place_id'] as String,
+                                      suggestion['description'] as String,
+                                    );
+                                  },
+                                  child: Padding(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 16,
+                                      vertical: 12,
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        const Icon(
+                                          Icons.location_on,
+                                          color: Colors.red,
+                                          size: 20,
+                                        ),
+                                        const SizedBox(width: 12),
+                                        Expanded(
+                                          child: Text(
+                                            suggestion['description'] as String,
+                                            style: const TextStyle(fontSize: 14),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                );
                               },
-                            )
-                          : null,
-                      border: InputBorder.none,
-                      contentPadding: const EdgeInsets.all(16),
+                            ),
+                          ),
+                      ],
                     ),
-                    onChanged: (value) {
-                      setState(() {});
-                      if (value.isNotEmpty) {
-                        _searchDestination(value);
-                      } else {
-                        setState(() {
-                          _searchSuggestions = [];
-                        });
-                      }
-                    },
-                    onSubmitted: (value) {
-                      if (value.isNotEmpty) {
-                        _setDestinationFromAddress(value);
-                      }
-                    },
                   ),
-                  // Search Suggestions
-                  if (_searchSuggestions.isNotEmpty)
-                    Container(
-                      constraints: const BoxConstraints(maxHeight: 200),
-                      child: ListView.builder(
-                        shrinkWrap: true,
-                        itemCount: _searchSuggestions.length,
-                        itemBuilder: (context, index) {
-                          final suggestion = _searchSuggestions[index];
-                          return ListTile(
-                            leading: const Icon(Icons.location_on),
-                            title: Text(suggestion['description'] as String),
-                            onTap: () {
-                              _setDestinationFromPlaceId(
-                                suggestion['place_id'] as String,
-                                suggestion['description'] as String,
-                              );
-                            },
-                          );
-                        },
-                      ),
-                    ),
                 ],
               ),
             ),
           ),
+
+          // Loading Indicator
           if (_isLoadingRoute)
             const Center(
-              child: CircularProgressIndicator(),
-            ),
-          if (_dropLocation == null && _destinationController.text.isEmpty)
-            Positioned(
-              bottom: 100,
-              left: 20,
-              right: 20,
               child: Card(
-                color: Colors.blue.withOpacity(0.9),
-                child: const Padding(
-                  padding: EdgeInsets.all(12.0),
-                  child: Text(
-                    'Enter destination address or tap on the map',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.bold,
-                    ),
-                    textAlign: TextAlign.center,
+                child: Padding(
+                  padding: EdgeInsets.all(16.0),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                      SizedBox(width: 16),
+                      Text('Finding route...'),
+                    ],
                   ),
                 ),
               ),
             ),
+
+          // Route Info Bottom Sheet
+          if (_routeDetails != null && _dropLocation != null)
+            Positioned(
+              bottom: 0,
+              left: 0,
+              right: 0,
+              child: SafeArea(
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.1),
+                        blurRadius: 10,
+                        offset: const Offset(0, -2),
+                      ),
+                    ],
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      // Drag Handle
+                      Container(
+                        margin: const EdgeInsets.only(top: 8),
+                        width: 40,
+                        height: 4,
+                        decoration: BoxDecoration(
+                          color: Colors.grey[300],
+                          borderRadius: BorderRadius.circular(2),
+                        ),
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.all(16.0),
+                        child: Row(
+                          children: [
+                            // Route Info
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Text(
+                                    'Route',
+                                    style: TextStyle(
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 8),
+                                  Row(
+                                    children: [
+                                      Icon(Icons.access_time, size: 16, color: Colors.grey[600]),
+                                      const SizedBox(width: 4),
+                                      Text(
+                                        _routeDetails!.duration,
+                                        style: TextStyle(
+                                          fontSize: 14,
+                                          color: Colors.grey[700],
+                                        ),
+                                      ),
+                                      const SizedBox(width: 16),
+                                      Icon(Icons.straighten, size: 16, color: Colors.grey[600]),
+                                      const SizedBox(width: 4),
+                                      Text(
+                                        _routeDetails!.distance,
+                                        style: TextStyle(
+                                          fontSize: 14,
+                                          color: Colors.grey[700],
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            ),
+                            // Clear Button
+                            IconButton(
+                              icon: const Icon(Icons.close),
+                              onPressed: _removeDropLocation,
+                              tooltip: 'Clear route',
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+
+          // Custom Map Controls
+          Positioned(
+            right: 16,
+            bottom: _routeDetails != null ? 120 : 16,
+            child: Column(
+              children: [
+                // My Location Button
+                if (_currentLocation != null)
+                  FloatingActionButton(
+                    mini: true,
+                    heroTag: 'myLocation',
+                    onPressed: () => _moveCameraToLocation(_currentLocation!),
+                    backgroundColor: Colors.white,
+                    child: const Icon(Icons.my_location, color: Colors.blue),
+                  ),
+                const SizedBox(height: 8),
+                // Fit Route Button
+                if (_dropLocation != null)
+                  FloatingActionButton(
+                    mini: true,
+                    heroTag: 'fitRoute',
+                    onPressed: _fitRoute,
+                    backgroundColor: Colors.white,
+                    child: const Icon(Icons.fit_screen, color: Colors.green),
+                  ),
+              ],
+            ),
+          ),
         ],
       ),
-      floatingActionButton: _currentLocation != null
-          ? Column(
-              mainAxisAlignment: MainAxisAlignment.end,
-              children: [
-                if (_dropLocation != null)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 10),
-                    child: FloatingActionButton(
-                      onPressed: _fitRoute,
-                      backgroundColor: Colors.green,
-                      child: const Icon(Icons.fit_screen),
-                      tooltip: 'Fit Route',
-                    ),
-                  ),
-                FloatingActionButton(
-                  onPressed: () => _moveCameraToLocation(_currentLocation!),
-                  backgroundColor: Colors.blue,
-                  child: const Icon(Icons.my_location),
-                  tooltip: 'My Location',
-                ),
-              ],
-            )
-          : null,
     );
   }
 }

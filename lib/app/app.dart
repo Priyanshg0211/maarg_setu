@@ -8,7 +8,7 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Live Location Map',
+      title: 'Google Maps',
       theme: ThemeData(primarySwatch: Colors.blue),
       home: const MapScreen(),
       debugShowCheckedModeBanner: false,
