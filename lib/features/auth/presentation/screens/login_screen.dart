@@ -24,10 +24,10 @@ class _LoginScreenState extends State<LoginScreen> {
       if (userCredential != null && mounted) {
         // Show success message
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Signed in successfully!'),
-            backgroundColor: Colors.green,
-            duration: Duration(seconds: 1),
+          SnackBar(
+            content: const Text('Signed in successfully!'),
+            backgroundColor: Colors.grey[800],
+            duration: const Duration(seconds: 1),
           ),
         );
         // Navigate to map screen after successful login
@@ -53,7 +53,7 @@ class _LoginScreenState extends State<LoginScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Error signing in: ${e.toString()}'),
-            backgroundColor: Colors.red,
+            backgroundColor: Colors.grey[900],
             duration: const Duration(seconds: 3),
           ),
         );
@@ -79,21 +79,17 @@ class _LoginScreenState extends State<LoginScreen> {
                 ),
                 const SizedBox(height: 24),
                 
-                // App Title
+                // App Title - using theme headlineMedium (medium weight, black)
                 Text(
                   'Google Maps App',
-                  style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                        fontWeight: FontWeight.bold,
-                      ),
+                  style: Theme.of(context).textTheme.headlineMedium,
                 ),
                 const SizedBox(height: 8),
                 
-                // Subtitle
+                // Subtitle - using theme bodyLarge (light weight, gray)
                 Text(
                   'Sign in to continue',
-                  style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                        color: Colors.grey[600],
-                      ),
+                  style: Theme.of(context).textTheme.bodyLarge,
                 ),
                 const SizedBox(height: 48),
                 
@@ -104,13 +100,11 @@ class _LoginScreenState extends State<LoginScreen> {
                 ),
                 const SizedBox(height: 24),
                 
-                // Info Text
+                // Info Text - using theme bodySmall (light weight, gray)
                 Text(
                   'By signing in, you agree to our Terms of Service\nand Privacy Policy',
                   textAlign: TextAlign.center,
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: Colors.grey[600],
-                      ),
+                  style: Theme.of(context).textTheme.bodySmall,
                 ),
               ],
             ),

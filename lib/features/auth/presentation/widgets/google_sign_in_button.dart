@@ -29,14 +29,12 @@ class GoogleSignInButton extends StatelessWidget {
             : const Icon(Icons.g_mobiledata, color: Colors.white, size: 24),
         label: Text(
           isLoading ? 'Signing in...' : 'Sign in with Google',
-          style: const TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.w500,
-            color: Colors.white,
-          ),
+          style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                color: Colors.white,
+              ),
         ),
         style: ElevatedButton.styleFrom(
-          backgroundColor: Colors.blue[700],
+          backgroundColor: Colors.black,
           foregroundColor: Colors.white,
           elevation: 2,
           shape: RoundedRectangleBorder(
