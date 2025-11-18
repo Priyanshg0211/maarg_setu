@@ -3696,7 +3696,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                         ),
                       ],
                     ),
-                    const SizedBox(height: 8),
+                    const SizedBox(height: 12),
                     // Origin and Destination Input Fields (Google Maps style)
                     Container(
                       decoration: BoxDecoration(
@@ -3715,11 +3715,11 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                         children: [
                           // Origin Input Field
                           Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                             child: Row(
                               children: [
                                 Padding(
-                                  padding: const EdgeInsets.only(left: 8, right: 12),
+                                  padding: const EdgeInsets.only(left: 4, right: 12),
                                   child: Icon(
                                     Icons.radio_button_checked,
                                     color: Colors.green[700],
@@ -3733,10 +3733,11 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                                     decoration: InputDecoration(
                                       hintText: _currentLocation != null ? 'Your location' : 'Boarding point',
                                       border: InputBorder.none,
-                                      contentPadding: const EdgeInsets.symmetric(vertical: 16, horizontal: 4),
-                                      hintStyle: TextStyle(color: Colors.grey[400]),
+                                      contentPadding: const EdgeInsets.symmetric(vertical: 14, horizontal: 8),
+                                      hintStyle: TextStyle(color: Colors.grey[400], fontSize: 14),
                                       isDense: true,
                                     ),
+                                    style: const TextStyle(fontSize: 14),
                                     onChanged: (value) {
                                       _onOriginSearchChanged(value);
                                     },
@@ -3749,7 +3750,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                                 ),
                                 if (_currentLocation != null && _originLocation == null && _originController.text.isEmpty)
                                   Padding(
-                                    padding: const EdgeInsets.only(right: 4),
+                                    padding: const EdgeInsets.only(right: 8),
                                     child: IconButton(
                                       icon: Icon(Icons.my_location, color: Colors.blue[700], size: 20),
                                       onPressed: () {
@@ -3775,7 +3776,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                                   ),
                                 if (_originLocation != null || _originController.text.isNotEmpty)
                                   Padding(
-                                    padding: const EdgeInsets.only(right: 4),
+                                    padding: const EdgeInsets.only(right: 8),
                                     child: IconButton(
                                       icon: const Icon(Icons.clear, color: Colors.grey, size: 20),
                                       onPressed: () {
@@ -3798,11 +3799,11 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                           Divider(height: 1, color: Colors.grey[300], thickness: 1),
                           // Destination Input Field
                           Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                             child: Row(
                               children: [
                                 Padding(
-                                  padding: const EdgeInsets.only(left: 8, right: 12),
+                                  padding: const EdgeInsets.only(left: 4, right: 12),
                                   child: Icon(
                                     Icons.location_on,
                                     color: Colors.red[700],
@@ -3816,9 +3817,10 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                                     decoration: const InputDecoration(
                                       hintText: 'Dropping point',
                                       border: InputBorder.none,
-                                      contentPadding: EdgeInsets.symmetric(vertical: 16, horizontal: 4),
+                                      contentPadding: EdgeInsets.symmetric(vertical: 14, horizontal: 8),
                                       isDense: true,
                                     ),
+                                    style: const TextStyle(fontSize: 14),
                                     onChanged: (value) {
                                       _onDestinationSearchChanged(value);
                                     },
@@ -3831,7 +3833,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                                 ),
                                 if (_dropLocation != null || _destinationController.text.isNotEmpty)
                                   Padding(
-                                    padding: const EdgeInsets.only(right: 4),
+                                    padding: const EdgeInsets.only(right: 8),
                                     child: IconButton(
                                       icon: const Icon(Icons.clear, color: Colors.grey, size: 20),
                                       onPressed: () {
@@ -3921,7 +3923,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
               right: 0,
               child: SafeArea(
                 child: Padding(
-                  padding: const EdgeInsets.only(top: 100, left: 16, right: 16),
+                  padding: const EdgeInsets.only(top: 180, left: 16, right: 16),
                   child: Container(
                     padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(
