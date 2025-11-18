@@ -228,10 +228,12 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     }
 
     // Real-time rerouting if navigating (only if not already loading)
+    // Origin is always live location, destination is pinned marker
     if (_isNavigating && _dropLocation != null && !_isLoadingRoute) {
       _rerouteIfNeeded(newLocation);
     } else if (_dropLocation != null && !_isLoadingRoute && !_isNavigating) {
       // Always ensure route is fetched when drop location is set (but not navigating)
+      // Route uses live location as origin automatically
       if (_routeDetails == null) {
         _fetchRoute();
       }
@@ -527,23 +529,19 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
       _hasShownRouteBottomSheet = false; // Reset flag when destination is removed
     });
     
-    // Update route if origin is still set
-    if (_originLocation != null && _currentLocation != null) {
-      _fetchRoute(showAlternatives: true);
-    } else {
-      // If no origin, clear route
-      setState(() {
-        _routeDetails = null;
-        _alternativeRoutes = [];
-        _isNavigating = false;
-        _currentStepIndex = 0;
-        _polylines.clear();
-        _polygons.clear();
-        _realTimeDistance = null;
-        _formattedDistance = '';
-        _formattedETA = '';
-      });
-    }
+    // Clear route when destination is removed
+    // Origin is always live location, so route will be fetched when new destination is set
+    setState(() {
+      _routeDetails = null;
+      _alternativeRoutes = [];
+      _isNavigating = false;
+      _currentStepIndex = 0;
+      _polylines.clear();
+      _polygons.clear();
+      _realTimeDistance = null;
+      _formattedDistance = '';
+      _formattedETA = '';
+    });
     
     // Reset heatmap to user location when drop location is removed
     if (_currentLocation != null) {
@@ -801,16 +799,28 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
   }
 
   Future<void> _fetchRoute({bool showAlternatives = false}) async {
-    // Use origin location if set, otherwise use current location
-    final origin = _snappedOriginLocation ?? 
-        _originLocation ??
-        (_snappedCurrentLocation ?? 
-        (_currentLocation != null 
-            ? LatLng(_currentLocation!.latitude!, _currentLocation!.longitude!)
-            : null));
+    // Origin is always live location (current location)
+    // Destination is the pinned marker
+    if (_currentLocation == null) {
+      _showSnackBar('Waiting for your location...');
+      return;
+    }
+    
+    final currentLat = _currentLocation!.latitude;
+    final currentLng = _currentLocation!.longitude;
+    if (currentLat == null || currentLng == null) {
+      _showSnackBar('Location not available');
+      return;
+    }
+    
+    // Use live location as origin (snapped to road if available)
+    final origin = _snappedCurrentLocation ?? LatLng(currentLat, currentLng);
     final destination = _snappedDropLocation ?? _dropLocation;
     
-    if (origin == null || destination == null) return;
+    if (destination == null) {
+      _showSnackBar('Please pin a destination on the map');
+      return;
+    }
 
     setState(() {
       _isLoadingRoute = true;
@@ -1088,67 +1098,71 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     });
   }
 
+  /// Handle map tap - allows pinning only ONE destination marker
+  /// Live location is always the origin (starting point)
   Future<void> _onMapTap(LatLng position) async {
-    // If origin is not set, set it; otherwise set/replace destination (only one drop point allowed)
-    if (_originLocation == null) {
+    // Check if live location is available (required for origin)
+    if (_currentLocation == null) {
+      _showSnackBar('Waiting for your location...');
+      return;
+    }
+    
+    // If destination already exists, replace it (only one destination allowed)
+    final wasReplacing = _dropLocation != null;
+    
+    if (wasReplacing) {
+      // Clear previous drop location data
       setState(() {
-        _originLocation = position;
+        _dropLocation = null;
+        _snappedDropLocation = null;
+        _dropLocationAddress = null;
+        _destinationTrafficDataPoints = [];
+        _hasShownRouteBottomSheet = false; // Reset to show bottom sheet for new route
       });
-      await _addOriginLocationMarker(position);
-      _fetchTrafficDataForLocation(position, isOrigin: true);
-      _detectNearbyPlacesAndAlerts(position);
+      // Remove previous marker
+      _markers.removeWhere((marker) => marker.markerId.value == 'dropLocation');
+      // Clear previous route
+      setState(() {
+        _routeDetails = null;
+        _alternativeRoutes = [];
+        _polylines.clear();
+        _polygons.clear();
+      });
+      
+      _showSnackBar('Selecting new destination...');
+    }
+    
+    // Set new drop location (destination)
+    setState(() {
+      _dropLocation = position;
+    });
+    
+    // Add new destination marker
+    await _addDropLocationMarker(position);
+    _fetchTrafficDataForLocation(position, isOrigin: false);
+    _detectNearbyPlacesAndAlerts(position);
+    
+    // Automatically fetch and display the route path
+    // Origin is always live location, destination is pinned marker
+    await _fetchRoute(showAlternatives: true);
+    
+    // Update real-time distance and ETA using live location as origin
+    if (_currentLocation != null) {
+      final currentLat = _currentLocation!.latitude;
+      final currentLng = _currentLocation!.longitude;
+      if (currentLat != null && currentLng != null) {
+        _updateRealTimeDistanceAndETA(LatLng(currentLat, currentLng));
+      }
+    }
+    
+    // Smoothly animate camera to show the full path
+    await _animateToShowPath();
+    
+    // Show success feedback
+    if (wasReplacing) {
+      _showSnackBar('Destination updated');
     } else {
-      // Always replace drop location if one exists (only one drop point allowed)
-      final wasReplacing = _dropLocation != null;
-      
-      // Clear previous drop location data smoothly
-      if (wasReplacing) {
-        setState(() {
-          _dropLocation = null;
-          _snappedDropLocation = null;
-          _dropLocationAddress = null;
-          _destinationTrafficDataPoints = [];
-        });
-        // Remove previous marker
-        _markers.removeWhere((marker) => marker.markerId.value == 'dropLocation');
-        // Clear previous route
-        setState(() {
-          _routeDetails = null;
-          _alternativeRoutes = [];
-          _polylines.clear();
-        });
-        
-        // Show feedback that drop point is being replaced
-        _showSnackBar('Selecting new destination...');
-      }
-      
-      // Set new drop location
-      setState(() {
-        _dropLocation = position;
-      });
-      
-      // Add new drop location marker with smooth animation
-      await _addDropLocationMarker(position);
-      _fetchTrafficDataForLocation(position, isOrigin: false);
-      _detectNearbyPlacesAndAlerts(position);
-      
-      // Automatically fetch and display the route path
-      await _fetchRoute(showAlternatives: true);
-      
-      // Update real-time distance and ETA
-      if (_originLocation != null) {
-        final originLat = _originLocation!.latitude;
-        final originLng = _originLocation!.longitude;
-        _updateRealTimeDistanceAndETA(LatLng(originLat, originLng));
-      }
-      
-      // Smoothly animate camera to show the full path
-      await _animateToShowPath();
-      
-      // Show success feedback
-      if (wasReplacing) {
-        _showSnackBar('Destination updated');
-      }
+      _showSnackBar('Destination set - Route found');
     }
   }
 
