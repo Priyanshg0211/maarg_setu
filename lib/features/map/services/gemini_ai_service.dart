@@ -77,18 +77,6 @@ class GeminiAIService {
     final dayOfWeek = time.weekday; // 1 = Monday, 7 = Sunday
     
     try {
-<<<<<<< HEAD
-=======
-      // Build context for AI
-      _buildHyperlocalContext(
-        location: location,
-        nearbyPlaces: nearbyPlaces,
-        currentAlerts: currentAlerts,
-        hour: hour,
-        dayOfWeek: dayOfWeek,
-      );
-
->>>>>>> 6ad870e4e773e730ba43ecccb65ecf86220100b2
       // Optimized prompt for faster responses - concise and direct
       final placesSummary = nearbyPlaces.take(5).map((p) => p.name).join(', ');
       final alertsSummary = currentAlerts.take(3).map((a) => a.message).join('; ');
