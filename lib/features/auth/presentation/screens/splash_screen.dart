@@ -76,7 +76,7 @@ class _SplashScreenState extends State<SplashScreen> {
             
             // App Title - using theme headlineMedium (medium weight, black)
             Text(
-              'Google Maps App',
+              'maarg setu',
               style: Theme.of(context).textTheme.headlineMedium,
             ),
             const SizedBox(height: 8),

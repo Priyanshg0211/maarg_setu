@@ -116,7 +116,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     
                     // App Title with modern styling
                     Text(
-                      'Google Maps App',
+                      'maarg setu',
                       style: TextStyle(
                         fontSize: 28,
                         fontWeight: FontWeight.bold,

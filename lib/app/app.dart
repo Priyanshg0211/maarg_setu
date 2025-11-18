@@ -9,7 +9,7 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Google Maps',
+      title: 'maarg setu',
       theme: ThemeData(
         // Black and white color scheme
         primarySwatch: Colors.grey,
