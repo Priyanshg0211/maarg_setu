@@ -32,7 +32,7 @@ class RouteOptimizerService {
     double searchRadius = 3000, // 3km radius for place detection
   }) async {
     try {
-      // Get all alternative routes
+      // Get all alternative routes (optimized - get routes first, then analyze)
       final routes = await _directionsService.getRoutes(
         origin: origin,
         destination: destination,
@@ -41,26 +41,34 @@ class RouteOptimizerService {
 
       if (routes.isEmpty) return [];
 
-      // Detect nearby places for origin and destination
-      final originPlaces = await _nearbyPlacesService.findNearbyPlaces(
-        center: origin,
-        radiusMeters: searchRadius,
-      );
+      // Detect nearby places for origin and destination (run in parallel for speed)
+      final placesFuture = Future.wait([
+        _nearbyPlacesService.findNearbyPlaces(
+          center: origin,
+          radiusMeters: searchRadius,
+        ),
+        _nearbyPlacesService.findNearbyPlaces(
+          center: destination,
+          radiusMeters: searchRadius,
+        ),
+      ]);
+      
+      final placesResults = await placesFuture;
+      final originPlaces = placesResults[0];
+      final destinationPlaces = placesResults[1];
 
-      final destinationPlaces = await _nearbyPlacesService.findNearbyPlaces(
-        center: destination,
-        radiusMeters: searchRadius,
-      );
-
-      // Analyze traffic alerts
+      // Analyze traffic alerts (optimized - limit places for faster processing)
+      final limitedOriginPlaces = originPlaces.take(15).toList();
+      final limitedDestPlaces = destinationPlaces.take(15).toList();
+      
       final originAlerts = _nearbyPlacesService.analyzeTrafficAlerts(
         center: origin,
-        places: originPlaces,
+        places: limitedOriginPlaces,
       );
 
       final destinationAlerts = _nearbyPlacesService.analyzeTrafficAlerts(
         center: destination,
-        places: destinationPlaces,
+        places: limitedDestPlaces,
       );
 
       // Evaluate and optimize each route

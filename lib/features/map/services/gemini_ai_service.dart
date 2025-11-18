@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:async';
 import 'package:http/http.dart' as http;
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'nearby_places_service.dart';
@@ -85,33 +86,16 @@ class GeminiAIService {
         dayOfWeek: dayOfWeek,
       );
 
-      final prompt = '''
-You are an AI assistant specialized in hyperlocal traffic prediction and route optimization for local communities.
+      // Optimized prompt for faster responses - concise and direct
+      final placesSummary = nearbyPlaces.take(5).map((p) => p.name).join(', ');
+      final alertsSummary = currentAlerts.take(3).map((a) => a.message).join('; ');
+      final prompt = '''Traffic analysis at ${location.latitude.toStringAsFixed(4)},${location.longitude.toStringAsFixed(4)} at ${hour}:00 ${_getDayName(dayOfWeek)}.
 
-Context:
-$context
+Places: ${placesSummary.isEmpty ? 'None' : placesSummary}
+Alerts: ${alertsSummary.isEmpty ? 'None' : alertsSummary}
 
-Based on this hyperlocal data, provide:
-1. Traffic prediction for the next 1-2 hours
-2. Confidence level (0-100%)
-3. Reasoning based on local patterns
-4. 3-5 specific recommendations for local residents
-5. Insights about local businesses, markets, and peak times
-
-Format your response as JSON:
-{
-  "prediction": "Brief traffic prediction",
-  "confidence": 0.85,
-  "reasoning": "Detailed reasoning",
-  "recommendations": ["rec1", "rec2", "rec3"],
-  "insights": {
-    "peakHours": "8-10 AM, 5-7 PM",
-    "bestTimeToVisit": "10 AM - 12 PM",
-    "localEvents": "Market day on Sunday",
-    "marketTimings": "6 AM - 8 PM"
-  }
-}
-''';
+Provide JSON only:
+{"prediction":"Traffic forecast","confidence":0.85,"reasoning":"Brief reason","recommendations":["rec1","rec2","rec3"],"insights":{"peakHours":"8-10 AM","bestTimeToVisit":"10 AM"}}''';
 
       final response = await _callGeminiAPI(prompt);
       
@@ -139,35 +123,15 @@ Format your response as JSON:
     try {
       final time = currentTime ?? DateTime.now();
       
-      final prompt = '''
-You are an AI assistant helping hyperlocal residents find the best routes considering:
-- Local markets and vendors
-- School timings
-- Peak business hours
-- Community events
-- Local traffic patterns
+      // Optimized prompt for faster responses
+      final alertSummary = alerts.take(3).map((a) => a.message).join('; ');
+      final prompt = '''Analyze route from ${origin.latitude.toStringAsFixed(4)},${origin.longitude.toStringAsFixed(4)} to ${destination.latitude.toStringAsFixed(4)},${destination.longitude.toStringAsFixed(4)} at ${time.hour}:${time.minute.toString().padLeft(2, '0')}.
 
-Origin: ${origin.latitude}, ${origin.longitude}
-Destination: ${destination.latitude}, ${destination.longitude}
-Current Time: ${time.toString()}
-Nearby Places at Origin: ${originPlaces.length}
-Nearby Places at Destination: ${destinationPlaces.length}
-Traffic Alerts: ${alerts.length}
+Traffic alerts: ${alerts.length > 0 ? alertSummary : 'None'}
+Nearby places: Origin ${originPlaces.length}, Destination ${destinationPlaces.length}
 
-Provide route recommendation in JSON:
-{
-  "recommendation": "Best route suggestion",
-  "reasoning": "Why this route",
-  "timeSavings": 5.0,
-  "benefits": ["benefit1", "benefit2"],
-  "hyperlocalInsights": {
-    "avoidMarkets": true,
-    "schoolTimings": "Avoid 8-9 AM, 3-4 PM",
-    "vendorLocations": "Street vendors on Main St",
-    "localTips": "Use back roads during market hours"
-  }
-}
-''';
+Provide optimal navigation recommendation in JSON only:
+{"recommendation":"Route advice","reasoning":"Brief reason","timeSavings":5.0,"benefits":["benefit1","benefit2"],"hyperlocalInsights":{"avoidMarkets":true,"schoolTimings":"8-9 AM","localTips":"Tip"}}''';
 
       final response = await _callGeminiAPI(prompt);
       
@@ -239,13 +203,14 @@ Format as JSON array of insights.
           }
         ],
         'generationConfig': {
-          'temperature': 0.7,
-          'topK': 40,
-          'topP': 0.95,
-          'maxOutputTokens': 1024,
+          'temperature': 0.3, // Lower temperature for more focused, faster responses
+          'topK': 20, // Reduced for faster processing
+          'topP': 0.8, // Reduced for faster processing
+          'maxOutputTokens': 512, // Reduced for faster responses
         }
       });
 
+      // Add timeout for faster responses
       final response = await http.post(
         url,
         headers: {
@@ -253,6 +218,11 @@ Format as JSON array of insights.
           'x-goog-api-key': apiKey,
         },
         body: requestBody,
+      ).timeout(
+        const Duration(seconds: 8), // 8 second timeout for API calls
+        onTimeout: () {
+          throw TimeoutException('Gemini API request timed out');
+        },
       );
 
       if (response.statusCode == 200) {
