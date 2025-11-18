@@ -638,10 +638,8 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
           _trafficAlerts = alerts;
           _isLoadingPlaces = false;
         });
-        // Show bottom sheet if we have traffic alerts or business insights (debounced)
-        if (alerts.isNotEmpty || _businessInsights.isNotEmpty) {
-          _showBottomSheetIfNeeded();
-        }
+        // Don't show separate AI insights bottom sheet - everything is in route bottom sheet
+        // Route bottom sheet includes all information (AI predictions, alerts, businesses)
       }
     } catch (e) {
       print('Error detecting nearby places: $e');
@@ -895,11 +893,11 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
         _isLoadingRoute = false;
       });
       
-      // Show route bottom sheet immediately when route is found (don't wait for AI)
-      if (routes.isNotEmpty && !_hasShownRouteBottomSheet) {
+      // Show route bottom sheet immediately when route is found (only once per route)
+      if (routes.isNotEmpty && !_hasShownRouteBottomSheet && !_isBottomSheetOpen) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
-          // Show immediately - AI data will update if available later
-          if (mounted && !_hasShownRouteBottomSheet && _routeDetails != null) {
+          // Double check before showing - prevent race conditions
+          if (mounted && !_isBottomSheetOpen && !_hasShownRouteBottomSheet && _routeDetails != null) {
             _showRouteBottomSheet();
           }
         });
@@ -2237,10 +2235,17 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
 
   /// Show route bottom sheet with all information and Start Navigation button (only once)
   void _showRouteBottomSheet() {
+    // Multiple safety checks to prevent showing multiple times
     if (!mounted || _isBottomSheetOpen || _routeDetails == null) return;
     
-    _isBottomSheetOpen = true;
+    // Double check flag to prevent multiple shows
+    if (_hasShownRouteBottomSheet) {
+      return;
+    }
+    
+    // Set flags immediately before showing to prevent race conditions
     _hasShownRouteBottomSheet = true;
+    _isBottomSheetOpen = true;
     _lastBottomSheetOpenTime = DateTime.now();
     
     showModalBottomSheet(
@@ -2408,6 +2413,179 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                       ),
                     ),
                     const SizedBox(height: 20),
+                    
+                    // AI Traffic Prediction Section
+                    if (_aiPrediction != null) ...[
+                      Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                              color: Colors.blue[50],
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Icon(
+                              Icons.trending_up,
+                              color: Colors.blue[700],
+                              size: 20,
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Text(
+                            'AI Traffic Prediction',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.grey[900],
+                              letterSpacing: -0.3,
+                            ),
+                          ),
+                          const Spacer(),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: Colors.blue[100],
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Text(
+                              '${(_aiPrediction!.confidence * 100).toInt()}%',
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.blue[800],
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      // Main Prediction Card
+                      Container(
+                        padding: const EdgeInsets.all(18),
+                        decoration: BoxDecoration(
+                          color: Colors.blue[50],
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(
+                            color: Colors.blue[100]!,
+                            width: 1,
+                          ),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              _aiPrediction!.prediction,
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w600,
+                                color: Colors.grey[900],
+                                height: 1.4,
+                              ),
+                            ),
+                            if (_aiPrediction!.reasoning.isNotEmpty) ...[
+                              const SizedBox(height: 12),
+                              Text(
+                                'Analysis',
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w600,
+                                  color: Colors.grey[900],
+                                  letterSpacing: -0.3,
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                _aiPrediction!.reasoning,
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  color: Colors.grey[700],
+                                  height: 1.6,
+                                ),
+                              ),
+                            ],
+                            if (_aiPrediction!.recommendations.isNotEmpty) ...[
+                              const SizedBox(height: 12),
+                              Text(
+                                'Recommendations',
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w600,
+                                  color: Colors.grey[900],
+                                  letterSpacing: -0.3,
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              ..._aiPrediction!.recommendations.take(5).map((rec) => Padding(
+                                padding: const EdgeInsets.only(bottom: 8),
+                                child: Row(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Container(
+                                      margin: const EdgeInsets.only(top: 6),
+                                      width: 8,
+                                      height: 8,
+                                      decoration: BoxDecoration(
+                                        color: Colors.blue[600],
+                                        shape: BoxShape.circle,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 12),
+                                    Expanded(
+                                      child: Text(
+                                        rec,
+                                        style: TextStyle(
+                                          fontSize: 13,
+                                          color: Colors.grey[800],
+                                          height: 1.5,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              )),
+                            ],
+                            if (_aiPrediction!.insights.isNotEmpty) ...[
+                              const SizedBox(height: 12),
+                              Container(
+                                padding: const EdgeInsets.all(12),
+                                decoration: BoxDecoration(
+                                  color: Colors.white,
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(
+                                    color: Colors.grey[200]!,
+                                    width: 1,
+                                  ),
+                                ),
+                                child: Column(
+                                  children: [
+                                    if (_aiPrediction!.insights.containsKey('peakHours'))
+                                      _buildModernInsightRow(
+                                        'Peak Hours',
+                                        _aiPrediction!.insights['peakHours'].toString(),
+                                      ),
+                                    if (_aiPrediction!.insights.containsKey('bestTimeToVisit')) ...[
+                                      const SizedBox(height: 12),
+                                      _buildModernInsightRow(
+                                        'Best Time',
+                                        _aiPrediction!.insights['bestTimeToVisit'].toString(),
+                                      ),
+                                    ],
+                                    if (_aiPrediction!.insights.containsKey('marketCount')) ...[
+                                      const SizedBox(height: 12),
+                                      _buildModernInsightRow(
+                                        'Markets Nearby',
+                                        _aiPrediction!.insights['marketCount'].toString(),
+                                      ),
+                                    ],
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 20),
+                    ],
                     
                     // AI Route Recommendation
                     if (_aiRouteRecommendation != null) ...[
@@ -2845,8 +3023,10 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
       ),
     ).then((_) {
       _isBottomSheetOpen = false;
+      // Don't reset _hasShownRouteBottomSheet - it should stay true to prevent showing again
     }).catchError((_) {
       _isBottomSheetOpen = false;
+      // Don't reset _hasShownRouteBottomSheet - it should stay true to prevent showing again
     });
   }
 
@@ -2880,38 +3060,20 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     );
   }
 
-  /// Show bottom sheet if needed (with debouncing to prevent multiple opens)
+  /// Show bottom sheet if needed (DISABLED - everything is in route bottom sheet)
+  /// All information (AI predictions, alerts, businesses) is shown in route bottom sheet
   void _showBottomSheetIfNeeded() {
-    if (!mounted || _isBottomSheetOpen) return;
-    
-    // Don't show if we have no data to display
-    if (_trafficAlerts.isEmpty && _businessInsights.isEmpty && _aiPrediction == null) {
-      return;
-    }
-    
-    // Debounce: Don't open if we just opened one recently (within 2 seconds)
-    final now = DateTime.now();
-    if (_lastBottomSheetOpenTime != null) {
-      final timeSinceLastOpen = now.difference(_lastBottomSheetOpenTime!);
-      if (timeSinceLastOpen.inSeconds < 2) {
-        return;
-      }
-    }
-    
-    _showAIInsightsBottomSheet();
+    // Disabled - all information is consolidated in route bottom sheet
+    // This prevents showing separate bottom sheets
+    return;
   }
 
-  /// Show AI Insights Bottom Sheet with all information
+  /// Show AI Insights Bottom Sheet (DISABLED - everything is in route bottom sheet)
+  /// All information is consolidated in the route bottom sheet
   void _showAIInsightsBottomSheet() {
-    if (!mounted || _isBottomSheetOpen) return;
-    
-    // Don't show if we have no data to display
-    if (_trafficAlerts.isEmpty && _businessInsights.isEmpty && _aiPrediction == null) {
-      return;
-    }
-    
-    _isBottomSheetOpen = true;
-    _lastBottomSheetOpenTime = DateTime.now();
+    // Disabled - all information (AI predictions, alerts, businesses) is shown in route bottom sheet
+    // This prevents showing separate bottom sheets
+    return;
     
     // Show bottom sheet even if no AI prediction, to show traffic alerts and businesses
     showModalBottomSheet(
