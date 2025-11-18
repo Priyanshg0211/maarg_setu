@@ -1,6 +1,6 @@
-# Mārg Setu – Hyperlocal Mobility Copilot 🛣️
+# Maarg Setu – Hyperlocal Mobility Copilot 🛣️
 
-Mārg Setu is a hackathon-built Flutter app that fuses Google Maps, Firebase Auth, AI insights, and an immersive AR navigation layer to help commuters pick safer, faster and more contextual routes in Indian metros.
+Maarg Setu is a hackathon-built Flutter app that fuses Google Maps, Firebase Auth, AI insights, and an immersive AR navigation layer to help commuters pick safer, faster and more contextual routes in Indian metros.
 
 ## Why it matters
 - Gives hyperlocal route intelligence (traffic heatmaps, AI predictions, transport mode tips)
