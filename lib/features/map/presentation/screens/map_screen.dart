@@ -3714,118 +3714,141 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           // Origin Input Field
-                          Row(
-                            children: [
-                              Padding(
-                                padding: const EdgeInsets.only(left: 16, right: 12),
-                                child: Icon(
-                                  Icons.radio_button_checked,
-                                  color: Colors.green[700],
-                                  size: 20,
-                                ),
-                              ),
-                              Expanded(
-                                child: TextField(
-                                  controller: _originController,
-                                  focusNode: _originFocusNode,
-                                  decoration: InputDecoration(
-                                    hintText: _currentLocation != null ? 'Your location' : 'Boarding point',
-                                    border: InputBorder.none,
-                                    contentPadding: const EdgeInsets.symmetric(vertical: 16),
-                                    hintStyle: TextStyle(color: Colors.grey[400]),
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                            child: Row(
+                              children: [
+                                Padding(
+                                  padding: const EdgeInsets.only(left: 8, right: 12),
+                                  child: Icon(
+                                    Icons.radio_button_checked,
+                                    color: Colors.green[700],
+                                    size: 20,
                                   ),
-                                  onChanged: (value) {
-                                    _onOriginSearchChanged(value);
-                                  },
-                                  onSubmitted: (value) {
-                                    if (value.isNotEmpty) {
-                                      _setOriginFromAddress(value);
-                                    }
-                                  },
                                 ),
-                              ),
-                              if (_currentLocation != null && _originLocation == null && _originController.text.isEmpty)
-                                IconButton(
-                                  icon: Icon(Icons.my_location, color: Colors.blue[700], size: 20),
-                                  onPressed: () {
-                                    final lat = _currentLocation!.latitude;
-                                    final lng = _currentLocation!.longitude;
-                                    if (lat != null && lng != null) {
-                                      final location = LatLng(lat, lng);
-                                      setState(() {
-                                        _originLocation = location;
-                                        _originController.text = 'Your location';
-                                      });
-                                      _addOriginLocationMarker(location);
-                                      _fetchTrafficDataForLocation(location, isOrigin: true);
-                                      if (_dropLocation != null) {
-                                        _fetchRoute(showAlternatives: true);
+                                Expanded(
+                                  child: TextField(
+                                    controller: _originController,
+                                    focusNode: _originFocusNode,
+                                    decoration: InputDecoration(
+                                      hintText: _currentLocation != null ? 'Your location' : 'Boarding point',
+                                      border: InputBorder.none,
+                                      contentPadding: const EdgeInsets.symmetric(vertical: 16, horizontal: 4),
+                                      hintStyle: TextStyle(color: Colors.grey[400]),
+                                      isDense: true,
+                                    ),
+                                    onChanged: (value) {
+                                      _onOriginSearchChanged(value);
+                                    },
+                                    onSubmitted: (value) {
+                                      if (value.isNotEmpty) {
+                                        _setOriginFromAddress(value);
                                       }
-                                    }
-                                  },
-                                  tooltip: 'Use current location',
+                                    },
+                                  ),
                                 ),
-                              if (_originLocation != null || _originController.text.isNotEmpty)
-                                IconButton(
-                                  icon: const Icon(Icons.clear, color: Colors.grey, size: 20),
-                                  onPressed: () {
-                                    _originSearchDebounceTimer?.cancel();
-                                    _originController.clear();
-                                    _removeOriginLocation();
-                                    setState(() {
-                                      _originSearchSuggestions = [];
-                                      _isSearchingOrigin = false;
-                                    });
-                                  },
-                                ),
-                            ],
+                                if (_currentLocation != null && _originLocation == null && _originController.text.isEmpty)
+                                  Padding(
+                                    padding: const EdgeInsets.only(right: 4),
+                                    child: IconButton(
+                                      icon: Icon(Icons.my_location, color: Colors.blue[700], size: 20),
+                                      onPressed: () {
+                                        final lat = _currentLocation!.latitude;
+                                        final lng = _currentLocation!.longitude;
+                                        if (lat != null && lng != null) {
+                                          final location = LatLng(lat, lng);
+                                          setState(() {
+                                            _originLocation = location;
+                                            _originController.text = 'Your location';
+                                          });
+                                          _addOriginLocationMarker(location);
+                                          _fetchTrafficDataForLocation(location, isOrigin: true);
+                                          if (_dropLocation != null) {
+                                            _fetchRoute(showAlternatives: true);
+                                          }
+                                        }
+                                      },
+                                      tooltip: 'Use current location',
+                                      padding: EdgeInsets.zero,
+                                      constraints: const BoxConstraints(),
+                                    ),
+                                  ),
+                                if (_originLocation != null || _originController.text.isNotEmpty)
+                                  Padding(
+                                    padding: const EdgeInsets.only(right: 4),
+                                    child: IconButton(
+                                      icon: const Icon(Icons.clear, color: Colors.grey, size: 20),
+                                      onPressed: () {
+                                        _originSearchDebounceTimer?.cancel();
+                                        _originController.clear();
+                                        _removeOriginLocation();
+                                        setState(() {
+                                          _originSearchSuggestions = [];
+                                          _isSearchingOrigin = false;
+                                        });
+                                      },
+                                      padding: EdgeInsets.zero,
+                                      constraints: const BoxConstraints(),
+                                    ),
+                                  ),
+                              ],
+                            ),
                           ),
                           // Divider
-                          Divider(height: 1, color: Colors.grey[300]),
+                          Divider(height: 1, color: Colors.grey[300], thickness: 1),
                           // Destination Input Field
-                          Row(
-                            children: [
-                              Padding(
-                                padding: const EdgeInsets.only(left: 16, right: 12),
-                                child: Icon(
-                                  Icons.location_on,
-                                  color: Colors.red[700],
-                                  size: 24,
-                                ),
-                              ),
-                              Expanded(
-                                child: TextField(
-                                  controller: _destinationController,
-                                  focusNode: _destinationFocusNode,
-                                  decoration: const InputDecoration(
-                                    hintText: 'Dropping point',
-                                    border: InputBorder.none,
-                                    contentPadding: EdgeInsets.symmetric(vertical: 16),
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                            child: Row(
+                              children: [
+                                Padding(
+                                  padding: const EdgeInsets.only(left: 8, right: 12),
+                                  child: Icon(
+                                    Icons.location_on,
+                                    color: Colors.red[700],
+                                    size: 24,
                                   ),
-                                  onChanged: (value) {
-                                    _onDestinationSearchChanged(value);
-                                  },
-                                  onSubmitted: (value) {
-                                    if (value.isNotEmpty) {
-                                      _setDestinationFromAddress(value);
-                                    }
-                                  },
                                 ),
-                              ),
-                              if (_dropLocation != null || _destinationController.text.isNotEmpty)
-                                IconButton(
-                                  icon: const Icon(Icons.clear, color: Colors.grey, size: 20),
-                                  onPressed: () {
-                                    _destinationSearchDebounceTimer?.cancel();
-                                    _destinationController.clear();
-                                    _removeDropLocation();
-                                    setState(() {
-                                      _destinationSearchSuggestions = [];
-                                      _isSearchingDestination = false;
-                                    });
-                                  },
+                                Expanded(
+                                  child: TextField(
+                                    controller: _destinationController,
+                                    focusNode: _destinationFocusNode,
+                                    decoration: const InputDecoration(
+                                      hintText: 'Dropping point',
+                                      border: InputBorder.none,
+                                      contentPadding: EdgeInsets.symmetric(vertical: 16, horizontal: 4),
+                                      isDense: true,
+                                    ),
+                                    onChanged: (value) {
+                                      _onDestinationSearchChanged(value);
+                                    },
+                                    onSubmitted: (value) {
+                                      if (value.isNotEmpty) {
+                                        _setDestinationFromAddress(value);
+                                      }
+                                    },
+                                  ),
                                 ),
-                            ],
+                                if (_dropLocation != null || _destinationController.text.isNotEmpty)
+                                  Padding(
+                                    padding: const EdgeInsets.only(right: 4),
+                                    child: IconButton(
+                                      icon: const Icon(Icons.clear, color: Colors.grey, size: 20),
+                                      onPressed: () {
+                                        _destinationSearchDebounceTimer?.cancel();
+                                        _destinationController.clear();
+                                        _removeDropLocation();
+                                        setState(() {
+                                          _destinationSearchSuggestions = [];
+                                          _isSearchingDestination = false;
+                                        });
+                                      },
+                                      padding: EdgeInsets.zero,
+                                      constraints: const BoxConstraints(),
+                                    ),
+                                  ),
+                              ],
+                            ),
                           ),
                           // Loading indicator while searching
                           if (_isSearchingOrigin || _isSearchingDestination)
@@ -3913,79 +3936,98 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                       ],
                     ),
                     child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceAround,
+                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                       children: [
                         Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                children: [
-                                  Icon(
-                                    Icons.straighten,
-                                    size: 20,
+                          child: Padding(
+                            padding: const EdgeInsets.only(right: 12),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(
+                                      Icons.straighten,
+                                      size: 20,
+                                      color: Colors.blue[700],
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Flexible(
+                                      child: Text(
+                                        'Distance',
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          color: Colors.grey[600],
+                                          fontWeight: FontWeight.w500,
+                                        ),
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 6),
+                                Text(
+                                  _formattedDistance,
+                                  style: TextStyle(
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.bold,
                                     color: Colors.blue[700],
                                   ),
-                                  const SizedBox(width: 8),
-                                  Text(
-                                    'Distance',
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      color: Colors.grey[600],
-                                      fontWeight: FontWeight.w500,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                _formattedDistance,
-                                style: TextStyle(
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.blue[700],
+                                  overflow: TextOverflow.ellipsis,
                                 ),
-                              ),
-                            ],
+                              ],
+                            ),
                           ),
                         ),
                         Container(
                           width: 1,
-                          height: 40,
+                          height: 50,
                           color: Colors.grey[300],
+                          margin: const EdgeInsets.symmetric(horizontal: 8),
                         ),
                         Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                children: [
-                                  Icon(
-                                    Icons.access_time,
-                                    size: 20,
+                          child: Padding(
+                            padding: const EdgeInsets.only(left: 12),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(
+                                      Icons.access_time,
+                                      size: 20,
+                                      color: Colors.green[700],
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Flexible(
+                                      child: Text(
+                                        'ETA',
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          color: Colors.grey[600],
+                                          fontWeight: FontWeight.w500,
+                                        ),
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 6),
+                                Text(
+                                  _formattedETA,
+                                  style: TextStyle(
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.bold,
                                     color: Colors.green[700],
                                   ),
-                                  const SizedBox(width: 8),
-                                  Text(
-                                    'ETA',
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      color: Colors.grey[600],
-                                      fontWeight: FontWeight.w500,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                _formattedETA,
-                                style: TextStyle(
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.green[700],
+                                  overflow: TextOverflow.ellipsis,
                                 ),
-                              ),
-                            ],
+                              ],
+                            ),
                           ),
                         ),
                       ],
