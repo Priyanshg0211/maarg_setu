@@ -77,15 +77,6 @@ class GeminiAIService {
     final dayOfWeek = time.weekday; // 1 = Monday, 7 = Sunday
     
     try {
-      // Build context for AI
-      final context = _buildHyperlocalContext(
-        location: location,
-        nearbyPlaces: nearbyPlaces,
-        currentAlerts: currentAlerts,
-        hour: hour,
-        dayOfWeek: dayOfWeek,
-      );
-
       // Optimized prompt for faster responses - concise and direct
       final placesSummary = nearbyPlaces.take(5).map((p) => p.name).join(', ');
       final alertsSummary = currentAlerts.take(3).map((a) => a.message).join('; ');
@@ -144,6 +135,140 @@ Provide optimal navigation recommendation in JSON only:
       print('Error getting AI route recommendation: $e');
       return _generateFallbackRouteRecommendation(alerts);
     }
+  }
+
+  /// Get AI-powered transportation mode-specific route recommendation
+  Future<Map<String, dynamic>> recommendRouteForTransportMode({
+    required String transportMode, // 'car', 'bike', 'bus', 'rapido', 'public_transport'
+    required List<Map<String, dynamic>> routes, // List of routes with distance, duration, etc.
+    required List<TrafficAlert> alerts,
+    required List<NearbyPlace> nearbyPlaces,
+    DateTime? currentTime,
+  }) async {
+    try {
+      final time = currentTime ?? DateTime.now();
+      final hour = time.hour;
+      
+      // Build route summary
+      final routeSummary = routes.asMap().entries.map((entry) {
+        final index = entry.key;
+        final route = entry.value;
+        return 'Route ${index + 1}: ${route['distance']} distance, ${route['duration']} duration';
+      }).join('; ');
+      
+      final alertSummary = alerts.take(3).map((a) => a.message).join('; ');
+      final placesSummary = nearbyPlaces.take(5).map((p) => p.name).join(', ');
+      
+      final prompt = '''You are a smart navigation assistant. A user wants to travel by ${transportMode} and has ${routes.length} alternative routes available.
+
+Routes: ${routeSummary}
+Current time: ${hour}:${time.minute.toString().padLeft(2, '0')}
+Traffic alerts: ${alerts.isEmpty ? 'None' : alertSummary}
+Nearby places: ${placesSummary.isEmpty ? 'None' : placesSummary}
+
+Analyze which route is BEST for ${transportMode} considering:
+- Traffic conditions (heavy traffic favors Rapido/bike over car)
+- Distance and convenience
+- Road conditions suitable for the mode
+- Time of day and traffic patterns
+- Whether walking might be better for short distances
+
+Provide your recommendation in JSON format:
+{
+  "recommendedRouteIndex": 0,
+  "recommendation": "Best route for ${transportMode}",
+  "reasoning": "Why this route is best (e.g., 'Rapido is good due to traffic', 'Car is not valid, easy going by walk', 'Best route for convenience')",
+  "alternativeSuggestion": "If applicable, suggest alternative mode (e.g., 'Consider walking for this short distance', 'Rapido would be faster due to traffic')",
+  "timeSavings": 5.0,
+  "benefits": ["benefit1", "benefit2"]
+}
+
+Be concise and practical. Focus on saving user time and convenience.''';
+
+      final response = await _callGeminiAPI(prompt);
+      
+      if (response != null) {
+        return _parseTransportModeRecommendation(response, routes.length);
+      }
+
+      return _generateFallbackTransportModeRecommendation(transportMode, routes, alerts);
+    } catch (e) {
+      print('Error getting transport mode recommendation: $e');
+      return _generateFallbackTransportModeRecommendation(transportMode, routes, alerts);
+    }
+  }
+  
+  /// Parse transportation mode recommendation
+  Map<String, dynamic> _parseTransportModeRecommendation(String response, int routeCount) {
+    try {
+      final jsonMatch = RegExp(r'\{[\s\S]*\}').firstMatch(response);
+      if (jsonMatch != null) {
+        final jsonStr = jsonMatch.group(0)!;
+        final data = json.decode(jsonStr) as Map<String, dynamic>;
+        
+        int routeIndex = (data['recommendedRouteIndex'] as num?)?.toInt() ?? 0;
+        // Ensure route index is valid
+        if (routeIndex < 0 || routeIndex >= routeCount) {
+          routeIndex = 0;
+        }
+        
+        return {
+          'recommendedRouteIndex': routeIndex,
+          'recommendation': data['recommendation'] as String? ?? 'Use recommended route',
+          'reasoning': data['reasoning'] as String? ?? 'Optimized for your transport mode',
+          'alternativeSuggestion': data['alternativeSuggestion'] as String? ?? '',
+          'timeSavings': (data['timeSavings'] as num?)?.toDouble() ?? 0.0,
+          'benefits': (data['benefits'] as List<dynamic>?)
+              ?.map((e) => e.toString())
+              .toList() ?? [],
+        };
+      }
+    } catch (e) {
+      print('Error parsing transport mode recommendation: $e');
+    }
+    
+    return _generateFallbackTransportModeRecommendation('car', [], []);
+  }
+  
+  /// Generate fallback transportation mode recommendation
+  Map<String, dynamic> _generateFallbackTransportModeRecommendation(
+    String transportMode,
+    List<Map<String, dynamic>> routes,
+    List<TrafficAlert> alerts,
+  ) {
+    int recommendedIndex = 0;
+    String reasoning = 'Route optimized for $transportMode';
+    
+    if (transportMode == 'bike' && routes.isNotEmpty) {
+      // Find shortest distance route
+      double minDistance = double.infinity;
+      for (int i = 0; i < routes.length; i++) {
+        final distanceStr = routes[i]['distance'] as String? ?? '';
+        final distance = double.tryParse(distanceStr.replaceAll(RegExp(r'[^\d.]'), '')) ?? 0;
+        if (distance < minDistance && distance > 0) {
+          minDistance = distance;
+          recommendedIndex = i;
+        }
+      }
+      reasoning = 'Shortest distance route for bike';
+    } else if (transportMode == 'rapido' && alerts.isNotEmpty) {
+      // For Rapido, prefer routes that avoid heavy traffic
+      recommendedIndex = routes.length > 1 ? 1 : 0;
+      reasoning = 'Rapido is good due to traffic - this route avoids congestion';
+    } else if (transportMode == 'car') {
+      // For car, prefer fastest route (usually first)
+      recommendedIndex = 0;
+      reasoning = 'Fastest route for car';
+    }
+    
+    return {
+      'recommendedRouteIndex': recommendedIndex,
+      'recommendation': 'Best route for $transportMode',
+      'reasoning': reasoning,
+      'alternativeSuggestion': '',
+      'timeSavings': alerts.length * 2.0,
+      'benefits': ['Optimized for $transportMode', 'Saves time'],
+    };
   }
 
   /// Get hyperlocal business insights

@@ -65,6 +65,10 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
   bool _showAlternatives = false;
   String? _dropLocationAddress;
   
+  // Transportation mode
+  String? _selectedTransportMode; // 'car', 'bike', 'bus', 'rapido', 'public_transport'
+  bool _hasShownTransportModeDialog = false;
+  
   // Real-time distance and ETA
   double? _realTimeDistance; // in meters
 // in seconds
@@ -510,6 +514,8 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
       setState(() {
         _routeDetails = null;
         _alternativeRoutes = [];
+        _hasShownTransportModeDialog = false; // Reset to show dialog for new routes
+        _selectedTransportMode = null; // Reset transport mode
         _polylines.clear();
         _polygons.clear();
       });
@@ -522,6 +528,8 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
   void _removeDropLocation() {
     setState(() {
       _dropLocation = null;
+      _hasShownTransportModeDialog = false; // Reset to show dialog for new routes
+      _selectedTransportMode = null; // Reset transport mode
       _snappedDropLocation = null;
       _dropLocationAddress = null;
       _destinationController.clear();
@@ -894,6 +902,15 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
         _isLoadingRoute = false;
       });
       
+      // Show transportation mode selector when alternative routes are available
+      if (routes.length > 1 && !_hasShownTransportModeDialog) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) {
+            _showTransportModeSelector();
+          }
+        });
+      }
+      
       // Show route bottom sheet immediately when route is found (only once per route)
       if (routes.isNotEmpty && !_hasShownRouteBottomSheet && !_isBottomSheetOpen) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -1124,6 +1141,8 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
       setState(() {
         _routeDetails = null;
         _alternativeRoutes = [];
+        _hasShownTransportModeDialog = false; // Reset to show dialog for new routes
+        _selectedTransportMode = null; // Reset transport mode
         _polylines.clear();
         _polygons.clear();
       });
@@ -1351,6 +1370,8 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
             _destinationTrafficDataPoints = [];
             _routeDetails = null;
             _alternativeRoutes = [];
+        _hasShownTransportModeDialog = false; // Reset to show dialog for new routes
+        _selectedTransportMode = null; // Reset transport mode
             _polylines.clear();
           });
           _markers.removeWhere((marker) => marker.markerId.value == 'dropLocation');
@@ -1448,6 +1469,8 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
             _destinationTrafficDataPoints = [];
             _routeDetails = null;
             _alternativeRoutes = [];
+        _hasShownTransportModeDialog = false; // Reset to show dialog for new routes
+        _selectedTransportMode = null; // Reset transport mode
             _polylines.clear();
           });
           _markers.removeWhere((marker) => marker.markerId.value == 'dropLocation');
@@ -2230,6 +2253,417 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
         content: Text(message),
         behavior: SnackBarBehavior.floating,
         duration: const Duration(seconds: 3),
+      ),
+    );
+  }
+
+  /// Show transportation mode selector dialog
+  void _showTransportModeSelector() {
+    if (!mounted || _alternativeRoutes.isEmpty) return;
+    
+    setState(() {
+      _hasShownTransportModeDialog = true;
+    });
+    
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => Dialog(
+        backgroundColor: Colors.transparent,
+        insetPadding: const EdgeInsets.all(20),
+        child: Container(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [
+                Colors.white,
+                Colors.blue[50]!,
+              ],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+            borderRadius: BorderRadius.circular(24),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.15),
+                blurRadius: 20,
+                offset: const Offset(0, 8),
+                spreadRadius: 0,
+              ),
+            ],
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(24.0),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Header
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.blue[100],
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Icon(
+                    Icons.directions_transit_rounded,
+                    size: 32,
+                    color: Colors.blue[800],
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  'How are you traveling?',
+                  style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.grey[900],
+                    letterSpacing: -0.5,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Select your mode to get the best route suggestion',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: Colors.grey[600],
+                  ),
+                ),
+                const SizedBox(height: 24),
+                // Transportation options
+                Wrap(
+                  spacing: 12,
+                  runSpacing: 12,
+                  alignment: WrapAlignment.center,
+                  children: [
+                    _buildTransportOption('car', 'Car', Icons.directions_car_rounded, Colors.blue),
+                    _buildTransportOption('bike', 'Bike', Icons.two_wheeler_rounded, Colors.green),
+                    _buildTransportOption('bus', 'Bus', Icons.directions_bus_rounded, Colors.orange),
+                    _buildTransportOption('rapido', 'Rapido', Icons.motorcycle_rounded, Colors.purple),
+                    _buildTransportOption('public_transport', 'Public Transport', Icons.train_rounded, Colors.red),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+  
+  /// Build transportation option button
+  Widget _buildTransportOption(String mode, String label, IconData icon, Color color) {
+    final isSelected = _selectedTransportMode == mode;
+    return GestureDetector(
+      onTap: () {
+        setState(() {
+          _selectedTransportMode = mode;
+        });
+        Navigator.of(context).pop();
+        _suggestBestRoute();
+      },
+      child: Container(
+        width: 100,
+        padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 12),
+        decoration: BoxDecoration(
+          gradient: isSelected
+              ? LinearGradient(
+                  colors: [color, color.withOpacity(0.8)],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                )
+              : null,
+          color: isSelected ? null : Colors.white.withOpacity(0.9),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: isSelected ? Colors.white.withOpacity(0.5) : color.withOpacity(0.3),
+            width: isSelected ? 2 : 1.5,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: (isSelected ? color : Colors.grey).withOpacity(0.2),
+              blurRadius: 8,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              icon,
+              size: 32,
+              color: isSelected ? Colors.white : color,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: isSelected ? Colors.white : Colors.grey[800],
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+  
+  /// Suggest best route based on transportation mode using Gemini AI
+  Future<void> _suggestBestRoute() async {
+    if (_selectedTransportMode == null || _alternativeRoutes.isEmpty) return;
+    
+    // Show loading indicator
+    _showSnackBar('Analyzing best route for ${_selectedTransportMode}...');
+    
+    try {
+      // Prepare route data for AI
+      final routesData = _alternativeRoutes.asMap().entries.map((entry) {
+        final route = entry.value;
+        return {
+          'distance': route.distance,
+          'duration': route.duration,
+          'distanceValue': route.distanceValue,
+          'durationValue': route.durationValue,
+        };
+      }).toList();
+      
+      // Get nearby places for context
+      final nearbyPlaces = _nearbyPlaces.take(5).toList();
+      
+      // Get AI recommendation with timeout
+      final aiRecommendation = await _geminiAIService.recommendRouteForTransportMode(
+        transportMode: _selectedTransportMode!,
+        routes: routesData,
+        alerts: _trafficAlerts.take(3).toList(),
+        nearbyPlaces: nearbyPlaces,
+        currentTime: DateTime.now(),
+      ).timeout(
+        const Duration(seconds: 5),
+        onTimeout: () {
+          // Use fallback if timeout
+          return _getFallbackRecommendation(_selectedTransportMode!, routesData);
+        },
+      );
+      
+      final recommendedIndex = aiRecommendation['recommendedRouteIndex'] as int;
+      final recommendation = aiRecommendation['recommendation'] as String;
+      final reasoning = aiRecommendation['reasoning'] as String;
+      final alternativeSuggestion = aiRecommendation['alternativeSuggestion'] as String;
+      
+      // Build suggestion message
+      String suggestion = reasoning;
+      if (alternativeSuggestion.isNotEmpty) {
+        suggestion += '\n\n💡 ${alternativeSuggestion}';
+      }
+      
+      // Select the recommended route
+      if (recommendedIndex < _alternativeRoutes.length) {
+        _selectRoute(recommendedIndex);
+      }
+      
+      // Show recommendation dialog
+      if (mounted) {
+        _showRouteRecommendation(
+          recommendedIndex,
+          'Route ${recommendedIndex + 1}',
+          suggestion,
+          recommendation,
+        );
+      }
+    } catch (e) {
+      print('Error getting AI route recommendation: $e');
+      // Fallback to simple logic
+      _useFallbackRouteSelection();
+    }
+  }
+  
+  /// Get fallback recommendation when AI is unavailable
+  Map<String, dynamic> _getFallbackRecommendation(String transportMode, List<Map<String, dynamic>> routes) {
+    int recommendedIndex = 0;
+    String reasoning = 'Route optimized for $transportMode';
+    
+    if (transportMode == 'bike' && routes.isNotEmpty) {
+      double minDistance = double.infinity;
+      for (int i = 0; i < routes.length; i++) {
+        final distance = double.tryParse(routes[i]['distanceValue'] as String? ?? '0') ?? 0;
+        if (distance < minDistance && distance > 0) {
+          minDistance = distance;
+          recommendedIndex = i;
+        }
+      }
+      reasoning = 'Shortest distance route for bike';
+    } else if (transportMode == 'rapido' && _trafficAlerts.isNotEmpty) {
+      recommendedIndex = routes.length > 1 ? 1 : 0;
+      reasoning = 'Rapido is good due to traffic - this route avoids congestion';
+    } else if (transportMode == 'car') {
+      recommendedIndex = 0;
+      reasoning = 'Fastest route for car';
+    }
+    
+    return {
+      'recommendedRouteIndex': recommendedIndex,
+      'recommendation': 'Best route for $transportMode',
+      'reasoning': reasoning,
+      'alternativeSuggestion': '',
+    };
+  }
+  
+  /// Use fallback route selection when AI fails
+  void _useFallbackRouteSelection() {
+    if (_selectedTransportMode == null || _alternativeRoutes.isEmpty) return;
+    
+    int recommendedIndex = 0;
+    String suggestion = '';
+    
+    switch (_selectedTransportMode) {
+      case 'car':
+        recommendedIndex = 0;
+        suggestion = '🚗 Best for car - Fastest route';
+        break;
+      case 'bike':
+        double minDistance = double.infinity;
+        for (int i = 0; i < _alternativeRoutes.length; i++) {
+          final distance = double.tryParse(_alternativeRoutes[i].distanceValue) ?? 0;
+          if (distance < minDistance) {
+            minDistance = distance;
+            recommendedIndex = i;
+          }
+        }
+        suggestion = '🏍️ Best for bike - Shortest distance';
+        break;
+      case 'bus':
+        recommendedIndex = _alternativeRoutes.length > 1 ? 1 : 0;
+        suggestion = '🚌 Best for bus - Better connectivity';
+        break;
+      case 'rapido':
+        recommendedIndex = _alternativeRoutes.length > 2 ? 1 : 0;
+        suggestion = '🏍️ Best for Rapido - Good road conditions';
+        break;
+      case 'public_transport':
+        recommendedIndex = _alternativeRoutes.length > 1 ? 1 : 0;
+        suggestion = '🚇 Best for public transport';
+        break;
+    }
+    
+    if (recommendedIndex < _alternativeRoutes.length) {
+      _selectRoute(recommendedIndex);
+    }
+    
+    if (mounted) {
+      _showRouteRecommendation(
+        recommendedIndex,
+        'Route ${recommendedIndex + 1}',
+        suggestion,
+        'Recommended route',
+      );
+    }
+  }
+  
+  /// Show route recommendation dialog
+  void _showRouteRecommendation(int routeIndex, String routeName, String suggestion, String title) {
+    showDialog(
+      context: context,
+      barrierDismissible: true,
+      builder: (context) => Dialog(
+        backgroundColor: Colors.transparent,
+        insetPadding: const EdgeInsets.all(20),
+        child: Container(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [
+                Colors.blue[50]!,
+                Colors.green[50]!,
+              ],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+            borderRadius: BorderRadius.circular(20),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.15),
+                blurRadius: 20,
+                offset: const Offset(0, 8),
+              ),
+            ],
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(20.0),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.8),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Icon(
+                    Icons.thumb_up_rounded,
+                    size: 32,
+                    color: Colors.green[700],
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  title,
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.grey[900],
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  suggestion,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: Colors.grey[700],
+                    height: 1.5,
+                  ),
+                ),
+                const SizedBox(height: 20),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.7),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.route, color: Colors.blue[700], size: 20),
+                      const SizedBox(width: 8),
+                      Text(
+                        '$routeName: ${_alternativeRoutes[routeIndex].duration} • ${_alternativeRoutes[routeIndex].distance}',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.blue[800],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 20),
+                ElevatedButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.blue[700],
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 12),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  child: const Text('Got it!'),
+                ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }
