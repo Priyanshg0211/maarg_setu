@@ -120,15 +120,7 @@ class MyApp extends StatelessWidget {
             color: Colors.black,
           ),
         ),
-        // Card theme
-        cardTheme: CardTheme(
-          color: Colors.white,
-          elevation: 2,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(8),
-            side: BorderSide(color: Colors.grey[300]!, width: 1),
-          ),
-        ),
+        // Card them
         // Input decoration theme
         inputDecorationTheme: InputDecorationTheme(
           filled: true,
