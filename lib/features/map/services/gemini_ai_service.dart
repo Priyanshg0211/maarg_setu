@@ -60,7 +60,7 @@ class HyperlocalBusinessInsight {
 }
 
 class GeminiAIService {
-  static const String _geminiApiUrl = 'https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent';
+  static const String _geminiApiUrl = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
   
   String get _geminiApiKey => MapConstants.geminiApiKey;
 
@@ -228,7 +228,7 @@ Format as JSON array of insights.
         return null;
       }
 
-      final url = Uri.parse('$_geminiApiUrl?key=$apiKey');
+      final url = Uri.parse('$_geminiApiUrl');
       
       final requestBody = json.encode({
         'contents': [
@@ -250,6 +250,7 @@ Format as JSON array of insights.
         url,
         headers: {
           'Content-Type': 'application/json',
+          'x-goog-api-key': apiKey,
         },
         body: requestBody,
       );
