@@ -28,19 +28,28 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
   final GeocodingService _geocodingService = GeocodingService();
   final TrafficService _trafficService = TrafficService();
   final AuthService _authService = AuthService();
+  final TextEditingController _originController = TextEditingController();
   final TextEditingController _destinationController = TextEditingController();
+  final FocusNode _originFocusNode = FocusNode();
   final FocusNode _destinationFocusNode = FocusNode();
 
   LocationData? _currentLocation;
   StreamSubscription<LocationData>? _locationSubscription;
-  LatLng? _dropLocation;
+  LatLng? _originLocation; // Boarding/Origin location
+  LatLng? _dropLocation; // Dropping/Destination location
   LatLng? _snappedCurrentLocation;
+  LatLng? _snappedOriginLocation;
   LatLng? _snappedDropLocation;
+  String? _originLocationAddress;
   bool _isLoadingRoute = false;
   bool _isSnappingLocation = false;
-  List<Map<String, dynamic>> _searchSuggestions = [];
-  bool _isSearching = false;
-  Timer? _searchDebounceTimer;
+  List<Map<String, dynamic>> _originSearchSuggestions = [];
+  List<Map<String, dynamic>> _destinationSearchSuggestions = [];
+  bool _isSearchingOrigin = false;
+  bool _isSearchingDestination = false;
+  Timer? _originSearchDebounceTimer;
+  Timer? _destinationSearchDebounceTimer;
+  String? _activeSearchField; // 'origin' or 'destination'
   RouteDetails? _routeDetails;
   List<RouteDetails> _alternativeRoutes = [];
   int _selectedRouteIndex = 0;
@@ -62,6 +71,8 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
   
   // Traffic heatmap data
   List<TrafficDataPoint> _trafficDataPoints = [];
+  List<TrafficDataPoint> _originTrafficDataPoints = []; // Traffic data for origin
+  List<TrafficDataPoint> _destinationTrafficDataPoints = []; // Traffic data for destination
   bool _showTrafficHeatmap = true; // Always show heatmap
   bool _isLoadingTraffic = false;
   Timer? _trafficUpdateTimer;
@@ -88,10 +99,13 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
   @override
   void dispose() {
     _locationSubscription?.cancel();
+    _originController.dispose();
     _destinationController.dispose();
+    _originFocusNode.dispose();
     _destinationFocusNode.dispose();
     _markerAnimationController?.dispose();
-    _searchDebounceTimer?.cancel();
+    _originSearchDebounceTimer?.cancel();
+    _destinationSearchDebounceTimer?.cancel();
     _routeUpdateTimer?.cancel();
     _trafficUpdateTimer?.cancel();
     super.dispose();
@@ -289,6 +303,71 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     return BitmapDescriptor.fromBytes(bytes!.buffer.asUint8List());
   }
 
+  Future<void> _addOriginLocationMarker(LatLng position, {bool isDragging = false}) async {
+    // Snap to road
+    if (!isDragging) {
+      setState(() {
+        _isSnappingLocation = true;
+      });
+      
+      final snapped = await _geocodingService.snapToRoad(position);
+      _snappedOriginLocation = snapped;
+      position = snapped!;
+      
+      // Reverse geocode to get address
+      final addressInfo = await _geocodingService.reverseGeocode(position);
+      _originLocationAddress = addressInfo?['address'] as String?;
+      
+      setState(() {
+        _isSnappingLocation = false;
+      });
+    }
+    
+    _markers.removeWhere((marker) => marker.markerId.value == 'originLocation');
+    
+    _markers.add(
+      Marker(
+        markerId: const MarkerId('originLocation'),
+        position: position,
+        infoWindow: InfoWindow(
+          title: 'Boarding Point',
+          snippet: _originLocationAddress ?? 'Origin location',
+        ),
+        icon: BitmapDescriptor.defaultMarkerWithHue(
+          BitmapDescriptor.hueGreen,
+        ),
+        anchor: const Offset(0.5, 1.0),
+        draggable: true,
+        onDragEnd: (newPosition) async {
+          setState(() {
+            _isSnappingLocation = true;
+          });
+          
+          final snapped = await _geocodingService.snapToRoad(newPosition);
+          _snappedOriginLocation = snapped;
+          
+          final addressInfo = await _geocodingService.reverseGeocode(snapped!);
+          _originLocationAddress = addressInfo?['address'] as String?;
+          
+          setState(() {
+            _originLocation = snapped;
+            _isSnappingLocation = false;
+          });
+          
+          await _addOriginLocationMarker(snapped, isDragging: false);
+          
+          // Update traffic heatmap for origin
+          _fetchTrafficDataForLocation(snapped, isOrigin: true);
+          
+          // Update route if destination is set
+          if (_dropLocation != null) {
+            _fetchRoute(showAlternatives: true);
+          }
+        },
+      ),
+    );
+  }
+
   Future<void> _addDropLocationMarker(LatLng position, {bool isDragging = false}) async {
     // Snap to road
     if (!isDragging) {
@@ -357,24 +436,60 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     );
   }
 
+  void _removeOriginLocation() {
+    setState(() {
+      _originLocation = null;
+      _snappedOriginLocation = null;
+      _originLocationAddress = null;
+      _originController.clear();
+      _markers.removeWhere((marker) => marker.markerId.value == 'originLocation');
+      _originTrafficDataPoints = [];
+    });
+    
+    // Update route if destination is still set
+    if (_dropLocation != null && _currentLocation != null) {
+      _fetchRoute(showAlternatives: true);
+    } else if (_dropLocation == null) {
+      // If no destination, clear route
+      setState(() {
+        _routeDetails = null;
+        _alternativeRoutes = [];
+        _polylines.clear();
+        _polygons.clear();
+      });
+    }
+    
+    // Update heatmap circles
+    _updateTrafficCircles();
+  }
+
   void _removeDropLocation() {
     setState(() {
       _dropLocation = null;
       _snappedDropLocation = null;
-      _routeDetails = null;
-      _alternativeRoutes = [];
-      _isNavigating = false;
-      _currentStepIndex = 0;
-      _destinationController.clear();
       _dropLocationAddress = null;
+      _destinationController.clear();
       _markers.removeWhere((marker) => marker.markerId.value == 'dropLocation');
-      _polylines.clear();
-      _polygons.clear();
-      _searchSuggestions = [];
-      _realTimeDistance = null;
-      _formattedDistance = '';
-      _formattedETA = '';
+      _destinationTrafficDataPoints = [];
     });
+    
+    // Update route if origin is still set
+    if (_originLocation != null && _currentLocation != null) {
+      _fetchRoute(showAlternatives: true);
+    } else {
+      // If no origin, clear route
+      setState(() {
+        _routeDetails = null;
+        _alternativeRoutes = [];
+        _isNavigating = false;
+        _currentStepIndex = 0;
+        _polylines.clear();
+        _polygons.clear();
+        _realTimeDistance = null;
+        _formattedDistance = '';
+        _formattedETA = '';
+      });
+    }
     
     // Reset heatmap to user location when drop location is removed
     if (_currentLocation != null) {
@@ -392,13 +507,56 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     if (_currentLocation != null) {
       _updateMarker(_currentLocation!);
     }
+    
+    // Update heatmap circles
+    _updateTrafficCircles();
+  }
+
+  /// Fetch traffic data for a specific location (origin or destination)
+  Future<void> _fetchTrafficDataForLocation(LatLng location, {required bool isOrigin}) async {
+    if (_isLoadingTraffic) return;
+    
+    setState(() {
+      _isLoadingTraffic = true;
+    });
+
+    try {
+      final trafficPoints = await _trafficService.getTrafficDataInRadius(
+        center: location,
+        radiusMeters: MapConstants.radarRadius,
+      );
+
+      if (mounted) {
+        setState(() {
+          if (isOrigin) {
+            _originTrafficDataPoints = trafficPoints;
+          } else {
+            _destinationTrafficDataPoints = trafficPoints;
+          }
+          _isLoadingTraffic = false;
+        });
+
+        // Update circles for traffic heatmap visualization
+        _updateTrafficCircles();
+      }
+    } catch (e) {
+      print('Error updating traffic heatmap: $e');
+      if (mounted) {
+        setState(() {
+          _isLoadingTraffic = false;
+        });
+      }
+    }
   }
 
   Future<void> _fetchRoute({bool showAlternatives = false}) async {
-    final origin = _snappedCurrentLocation ?? 
+    // Use origin location if set, otherwise use current location
+    final origin = _snappedOriginLocation ?? 
+        _originLocation ??
+        (_snappedCurrentLocation ?? 
         (_currentLocation != null 
             ? LatLng(_currentLocation!.latitude!, _currentLocation!.longitude!)
-            : null);
+            : null));
     final destination = _snappedDropLocation ?? _dropLocation;
     
     if (origin == null || destination == null) return;
@@ -620,91 +778,144 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
   }
 
   Future<void> _onMapTap(LatLng position) async {
-    setState(() {
-      _dropLocation = position;
-      _destinationController.clear();
-      // Update heatmap center to tapped location
-      _heatmapCenter = position;
-    });
-    
-    // Update heatmap at tapped location
-    _updateTrafficHeatmap(position);
-    
-    await _addDropLocationMarker(position);
-    
-    // Automatically fetch and display the route path
-    await _fetchRoute(showAlternatives: true);
-    
-    // Update marker to show arrow pointing to drop location
-    if (_currentLocation != null) {
-      await _updateMarker(_currentLocation!);
-    }
-    
-    // Update real-time distance and ETA
-    if (_currentLocation != null) {
-      final currentLat = _currentLocation!.latitude;
-      final currentLng = _currentLocation!.longitude;
-      if (currentLat != null && currentLng != null) {
-        _updateRealTimeDistanceAndETA(LatLng(currentLat, currentLng));
+    // If origin is not set, set it; otherwise set destination
+    if (_originLocation == null) {
+      setState(() {
+        _originLocation = position;
+      });
+      await _addOriginLocationMarker(position);
+      _fetchTrafficDataForLocation(position, isOrigin: true);
+    } else if (_dropLocation == null) {
+      setState(() {
+        _dropLocation = position;
+      });
+      await _addDropLocationMarker(position);
+      _fetchTrafficDataForLocation(position, isOrigin: false);
+      
+      // Automatically fetch and display the route path
+      await _fetchRoute(showAlternatives: true);
+      
+      // Update real-time distance and ETA
+      if (_originLocation != null) {
+        final originLat = _originLocation!.latitude;
+        final originLng = _originLocation!.longitude;
+        if (originLat != null && originLng != null) {
+          _updateRealTimeDistanceAndETA(LatLng(originLat, originLng));
+        }
       }
+      
+      // Smoothly animate camera to show the full path
+      await _animateToShowPath();
+    } else {
+      // Both are set, replace destination
+      setState(() {
+        _dropLocation = position;
+      });
+      await _addDropLocationMarker(position);
+      _fetchTrafficDataForLocation(position, isOrigin: false);
+      
+      // Automatically fetch and display the route path
+      await _fetchRoute(showAlternatives: true);
+      
+      // Update real-time distance and ETA
+      if (_originLocation != null) {
+        final originLat = _originLocation!.latitude;
+        final originLng = _originLocation!.longitude;
+        if (originLat != null && originLng != null) {
+          _updateRealTimeDistanceAndETA(LatLng(originLat, originLng));
+        }
+      }
+      
+      // Smoothly animate camera to show the full path
+      await _animateToShowPath();
     }
-    
-    // Smoothly animate camera to show the full path
-    await _animateToShowPath();
   }
 
-  /// Handle search text changes with debouncing
-  /// Following Google Maps search pattern
-  void _onSearchChanged(String query) {
-    // Cancel previous timer
-    _searchDebounceTimer?.cancel();
+  /// Handle origin search text changes with debouncing
+  void _onOriginSearchChanged(String query) {
+    _originSearchDebounceTimer?.cancel();
+    _activeSearchField = 'origin';
     
     final trimmedQuery = query.trim();
     
     if (trimmedQuery.isEmpty) {
       setState(() {
-        _searchSuggestions = [];
-        _isSearching = false;
+        _originSearchSuggestions = [];
+        _isSearchingOrigin = false;
       });
       return;
     }
 
-    // Require at least 2 characters to search (reduces API calls)
     if (trimmedQuery.length < 2) {
       setState(() {
-        _searchSuggestions = [];
-        _isSearching = false;
+        _originSearchSuggestions = [];
+        _isSearchingOrigin = false;
       });
       return;
     }
 
-    // Set loading state
     setState(() {
-      _isSearching = true;
-      _searchSuggestions = []; // Clear previous results while searching
+      _isSearchingOrigin = true;
+      _originSearchSuggestions = [];
     });
 
-    // Debounce search - wait 400ms after user stops typing (Google Maps-like)
-    _searchDebounceTimer = Timer(const Duration(milliseconds: 400), () {
-      _performSearch(trimmedQuery);
+    _originSearchDebounceTimer = Timer(const Duration(milliseconds: 400), () {
+      _performSearch(trimmedQuery, isOrigin: true);
+    });
+  }
+
+  /// Handle destination search text changes with debouncing
+  void _onDestinationSearchChanged(String query) {
+    _destinationSearchDebounceTimer?.cancel();
+    _activeSearchField = 'destination';
+    
+    final trimmedQuery = query.trim();
+    
+    if (trimmedQuery.isEmpty) {
+      setState(() {
+        _destinationSearchSuggestions = [];
+        _isSearchingDestination = false;
+      });
+      return;
+    }
+
+    if (trimmedQuery.length < 2) {
+      setState(() {
+        _destinationSearchSuggestions = [];
+        _isSearchingDestination = false;
+      });
+      return;
+    }
+
+    setState(() {
+      _isSearchingDestination = true;
+      _destinationSearchSuggestions = [];
+    });
+
+    _destinationSearchDebounceTimer = Timer(const Duration(milliseconds: 400), () {
+      _performSearch(trimmedQuery, isOrigin: false);
     });
   }
 
   /// Perform the actual search using Places API
-  /// Following the pattern: getSuggestion() from the sample code
-  Future<void> _performSearch(String query) async {
+  Future<void> _performSearch(String query, {required bool isOrigin}) async {
     if (query.isEmpty || query.trim().isEmpty) {
       if (mounted) {
         setState(() {
-          _searchSuggestions = [];
-          _isSearching = false;
+          if (isOrigin) {
+            _originSearchSuggestions = [];
+            _isSearchingOrigin = false;
+          } else {
+            _destinationSearchSuggestions = [];
+            _isSearchingDestination = false;
+          }
         });
       }
       return;
     }
 
     try {
-      // Get current location for location bias (better results like Google Maps)
+      // Get current location for location bias
       LatLng? currentLocation;
       if (_currentLocation != null) {
         currentLocation = LatLng(
@@ -717,118 +928,117 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
       final suggestions = await _geocodingService.searchPlaces(
         query,
         location: currentLocation,
-        radius: 50000, // 50km radius for location bias
+        radius: 50000,
       );
       
-      // Only update if the query hasn't changed and widget is still mounted
-      if (mounted && _destinationController.text.trim() == query) {
-        setState(() {
-          _searchSuggestions = suggestions;
-          _isSearching = false;
-        });
+      // Update the correct suggestions list
+      if (mounted) {
+        final controller = isOrigin ? _originController : _destinationController;
+        if (controller.text.trim() == query) {
+          setState(() {
+            if (isOrigin) {
+              _originSearchSuggestions = suggestions;
+              _isSearchingOrigin = false;
+            } else {
+              _destinationSearchSuggestions = suggestions;
+              _isSearchingDestination = false;
+            }
+          });
+        }
       }
     } catch (e) {
       print('Error performing search: $e');
       if (mounted) {
         setState(() {
-          _searchSuggestions = [];
-          _isSearching = false;
+          if (isOrigin) {
+            _originSearchSuggestions = [];
+            _isSearchingOrigin = false;
+          } else {
+            _destinationSearchSuggestions = [];
+            _isSearchingDestination = false;
+          }
         });
       }
     }
   }
 
-  Future<void> _setDestinationFromAddress(String address) async {
+  /// Set origin location from address
+  Future<void> _setOriginFromAddress(String address) async {
     setState(() {
-      _isLoadingRoute = true;
-      _destinationController.text = address;
-      _destinationFocusNode.unfocus();
-      _searchSuggestions = [];
+      _originController.text = address;
+      _originFocusNode.unfocus();
+      _originSearchSuggestions = [];
     });
 
     try {
       final location = await _geocodingService.geocodeAddress(address);
       if (location != null) {
-        // Immediately show the location on map
+        setState(() {
+          _originLocation = location;
+          _originLocationAddress = address;
+        });
+        
+        // Add origin marker
+        await _addOriginLocationMarker(location);
+        
+        // Fetch traffic heatmap for origin
+        _fetchTrafficDataForLocation(location, isOrigin: true);
+        
+        // Fetch route if destination is also set
+        if (_dropLocation != null) {
+          await _fetchRoute(showAlternatives: true);
+        }
+      } else {
+        _showSnackBar('Could not find the origin address. Please try again.');
+      }
+    } catch (e) {
+      _showSnackBar('Error finding origin address: $e');
+    }
+  }
+
+  /// Set destination location from address
+  Future<void> _setDestinationFromAddress(String address) async {
+    setState(() {
+      _destinationController.text = address;
+      _destinationFocusNode.unfocus();
+      _destinationSearchSuggestions = [];
+    });
+
+    try {
+      final location = await _geocodingService.geocodeAddress(address);
+      if (location != null) {
         setState(() {
           _dropLocation = location;
           _dropLocationAddress = address;
         });
         
-        // Add a temporary preview marker first
-        _markers.removeWhere((marker) => marker.markerId.value == 'dropLocation');
-        _markers.add(
-          Marker(
-            markerId: const MarkerId('dropLocation'),
-            position: location,
-            infoWindow: InfoWindow(
-              title: 'Destination',
-              snippet: address,
-            ),
-            icon: BitmapDescriptor.defaultMarkerWithHue(
-              BitmapDescriptor.hueRed,
-            ),
-            anchor: const Offset(0.5, 1.0),
-          ),
-        );
-        
-        // Center camera on the selected location
-        final controller = await _controller.future;
-        await controller.animateCamera(
-          CameraUpdate.newCameraPosition(
-            CameraPosition(
-              target: location,
-              zoom: 16.0,
-            ),
-          ),
-        );
-        
-        // Now snap to road and update marker
+        // Add destination marker
         await _addDropLocationMarker(location);
         
-        // Automatically fetch and display the route path
-        await _fetchRoute(showAlternatives: true);
+        // Fetch traffic heatmap for destination
+        _fetchTrafficDataForLocation(location, isOrigin: false);
         
-        // Update marker to show arrow pointing to drop location
-        if (_currentLocation != null) {
-          await _updateMarker(_currentLocation!);
+        // Fetch route if origin is also set
+        if (_originLocation != null || _currentLocation != null) {
+          await _fetchRoute(showAlternatives: true);
         }
-        
-        // Update real-time distance and ETA
-        if (_currentLocation != null) {
-          final currentLat = _currentLocation!.latitude;
-          final currentLng = _currentLocation!.longitude;
-          if (currentLat != null && currentLng != null) {
-            _updateRealTimeDistanceAndETA(LatLng(currentLat, currentLng));
-          }
-        }
-        
-        // Smoothly animate camera to show the full path
-        await _animateToShowPath();
       } else {
-        _showSnackBar('Could not find the address. Please try again.');
-        setState(() {
-          _isLoadingRoute = false;
-        });
+        _showSnackBar('Could not find the destination address. Please try again.');
       }
     } catch (e) {
-      _showSnackBar('Error finding address: $e');
-      setState(() {
-        _isLoadingRoute = false;
-      });
+      _showSnackBar('Error finding destination address: $e');
     }
   }
 
-  Future<void> _setDestinationFromPlaceId(String placeId, String description) async {
-    // Cancel any pending search
-    _searchDebounceTimer?.cancel();
+  /// Set origin location from place ID
+  Future<void> _setOriginFromPlaceId(String placeId, String description) async {
+    _originSearchDebounceTimer?.cancel();
     
     setState(() {
-      _isLoadingRoute = true;
-      _destinationController.text = description;
-      _destinationFocusNode.unfocus();
-      _searchSuggestions = [];
-      _isSearching = false;
+      _originController.text = description;
+      _originFocusNode.unfocus();
+      _originSearchSuggestions = [];
+      _isSearchingOrigin = false;
     });
 
     try {
@@ -837,73 +1047,64 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
         final location = placeDetails['location'] as LatLng;
         final address = placeDetails['address'] as String? ?? description;
         
-        // Immediately show the location on map (like Google Maps)
+        setState(() {
+          _originLocation = location;
+          _originLocationAddress = address;
+        });
+        
+        await _addOriginLocationMarker(location);
+        
+        // Fetch traffic heatmap for origin
+        _fetchTrafficDataForLocation(location, isOrigin: true);
+        
+        // Fetch route if destination is also set
+        if (_dropLocation != null) {
+          await _fetchRoute(showAlternatives: true);
+        }
+      } else {
+        _showSnackBar('Could not find the origin place. Please try again.');
+      }
+    } catch (e) {
+      _showSnackBar('Error finding origin place: $e');
+    }
+  }
+
+  /// Set destination location from place ID
+  Future<void> _setDestinationFromPlaceId(String placeId, String description) async {
+    _destinationSearchDebounceTimer?.cancel();
+    
+    setState(() {
+      _destinationController.text = description;
+      _destinationFocusNode.unfocus();
+      _destinationSearchSuggestions = [];
+      _isSearchingDestination = false;
+    });
+
+    try {
+      final placeDetails = await _geocodingService.getPlaceDetails(placeId);
+      if (placeDetails != null) {
+        final location = placeDetails['location'] as LatLng;
+        final address = placeDetails['address'] as String? ?? description;
+        
         setState(() {
           _dropLocation = location;
           _dropLocationAddress = address;
         });
         
-        // Add a temporary preview marker first
-        _markers.removeWhere((marker) => marker.markerId.value == 'dropLocation');
-        _markers.add(
-          Marker(
-            markerId: const MarkerId('dropLocation'),
-            position: location,
-            infoWindow: InfoWindow(
-              title: placeDetails['name'] as String? ?? 'Destination',
-              snippet: address,
-            ),
-            icon: BitmapDescriptor.defaultMarkerWithHue(
-              BitmapDescriptor.hueRed,
-            ),
-            anchor: const Offset(0.5, 1.0),
-          ),
-        );
-        
-        // Center camera on the selected location
-        final controller = await _controller.future;
-        await controller.animateCamera(
-          CameraUpdate.newCameraPosition(
-            CameraPosition(
-              target: location,
-              zoom: 16.0, // Good zoom level to see the location
-            ),
-          ),
-        );
-        
-        // Now snap to road and update marker
         await _addDropLocationMarker(location);
         
-        // Automatically fetch and display the route path
-        await _fetchRoute(showAlternatives: true);
+        // Fetch traffic heatmap for destination
+        _fetchTrafficDataForLocation(location, isOrigin: false);
         
-        // Update marker to show arrow pointing to drop location
-        if (_currentLocation != null) {
-          await _updateMarker(_currentLocation!);
+        // Fetch route if origin is also set
+        if (_originLocation != null || _currentLocation != null) {
+          await _fetchRoute(showAlternatives: true);
         }
-        
-        // Update real-time distance and ETA
-        if (_currentLocation != null) {
-          final currentLat = _currentLocation!.latitude;
-          final currentLng = _currentLocation!.longitude;
-          if (currentLat != null && currentLng != null) {
-            _updateRealTimeDistanceAndETA(LatLng(currentLat, currentLng));
-          }
-        }
-        
-        // Smoothly animate camera to show the full path
-        await _animateToShowPath();
       } else {
-        _showSnackBar('Could not find the place. Please try again.');
-        setState(() {
-          _isLoadingRoute = false;
-        });
+        _showSnackBar('Could not find the destination place. Please try again.');
       }
     } catch (e) {
-      _showSnackBar('Error finding place: $e');
-      setState(() {
-        _isLoadingRoute = false;
-      });
+      _showSnackBar('Error finding destination place: $e');
     }
   }
 
@@ -1007,36 +1208,52 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     }
   }
 
-  /// Update circles to show enhanced gradient-based traffic heatmap
+  /// Update circles to show enhanced gradient-based traffic heatmap for both origin and destination
   void _updateTrafficCircles() {
     // Remove existing traffic heatmap circles and traffic point circles (but keep radar circle)
     _circles.removeWhere((circle) => 
       circle.circleId.value.startsWith('traffic_heatmap') || 
-      circle.circleId.value.startsWith('traffic_point_'));
+      circle.circleId.value.startsWith('traffic_point_') ||
+      circle.circleId.value.startsWith('origin_heatmap') ||
+      circle.circleId.value.startsWith('destination_heatmap'));
     
-    if (!_showTrafficHeatmap || _heatmapCenter == null) {
+    if (!_showTrafficHeatmap) {
       setState(() {});
       return;
     }
 
-    // If we have traffic data points, create a sophisticated gradient heatmap
-    if (_trafficDataPoints.isNotEmpty) {
-      // Calculate average traffic intensity from all traffic points
-      final avgIntensity = _getAverageTrafficIntensity();
-      if (avgIntensity == null) {
-        setState(() {});
+    // Helper function to create heatmap circles for a location
+    void createHeatmapForLocation(LatLng center, List<TrafficDataPoint> dataPoints, String prefix) {
+      if (dataPoints.isEmpty) {
+        // Show a subtle default circle when no data yet
+        _circles.add(
+          Circle(
+            circleId: CircleId('${prefix}_heatmap_default'),
+            center: center,
+            radius: MapConstants.radarRadius,
+            fillColor: Colors.grey.withOpacity(0.1),
+            strokeColor: Colors.grey.withOpacity(0.3),
+            strokeWidth: 2,
+            zIndex: 0,
+          ),
+        );
         return;
       }
 
-      // Get base color based on average intensity
+      // Calculate average traffic intensity
+      int totalIntensity = 0;
+      for (final point in dataPoints) {
+        totalIntensity += point.intensity.index;
+      }
+      final avgIndex = (totalIntensity / dataPoints.length).round();
+      final avgIntensity = TrafficIntensity.values[avgIndex.clamp(0, TrafficIntensity.values.length - 1)];
       final baseColor = _getTrafficColorForIntensity(avgIntensity);
       
-      // Create multiple concentric circles with gradient effect for better visualization
-      // Outer circle (largest, most transparent)
+      // Create multiple concentric circles with gradient effect
       _circles.add(
         Circle(
-          circleId: const CircleId('traffic_heatmap_outer'),
-          center: _heatmapCenter!,
+          circleId: CircleId('${prefix}_heatmap_outer'),
+          center: center,
           radius: MapConstants.radarRadius,
           fillColor: baseColor.withOpacity(0.15),
           strokeColor: baseColor.withOpacity(0.4),
@@ -1045,11 +1262,10 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
         ),
       );
       
-      // Middle circle
       _circles.add(
         Circle(
-          circleId: const CircleId('traffic_heatmap_middle'),
-          center: _heatmapCenter!,
+          circleId: CircleId('${prefix}_heatmap_middle'),
+          center: center,
           radius: MapConstants.radarRadius * 0.7,
           fillColor: baseColor.withOpacity(0.25),
           strokeColor: baseColor.withOpacity(0.5),
@@ -1058,11 +1274,10 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
         ),
       );
       
-      // Inner circle (most intense)
       _circles.add(
         Circle(
-          circleId: const CircleId('traffic_heatmap_inner'),
-          center: _heatmapCenter!,
+          circleId: CircleId('${prefix}_heatmap_inner'),
+          center: center,
           radius: MapConstants.radarRadius * 0.4,
           fillColor: baseColor.withOpacity(0.35),
           strokeColor: baseColor.withOpacity(0.7),
@@ -1071,21 +1286,19 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
         ),
       );
       
-      // Add individual traffic point circles for more granular visualization
-      for (int i = 0; i < _trafficDataPoints.length; i++) {
-        final point = _trafficDataPoints[i];
+      // Add individual traffic point circles
+      for (int i = 0; i < dataPoints.length; i++) {
+        final point = dataPoints[i];
         final pointColor = _getTrafficColorForIntensity(point.intensity);
-        final distance = _calculateDistance(_heatmapCenter!, point.location);
+        final distance = _calculateDistance(center, point.location);
         
-        // Only show points within the radar radius
         if (distance <= MapConstants.radarRadius) {
-          // Size based on intensity (more intense = larger circle)
           final radius = 50.0 + (point.intensity.index * 30.0);
           final opacity = 0.4 + (point.intensity.index * 0.1);
           
           _circles.add(
             Circle(
-              circleId: CircleId('traffic_point_$i'),
+              circleId: CircleId('${prefix}_point_$i'),
               center: point.location,
               radius: radius,
               fillColor: pointColor.withOpacity(opacity.clamp(0.3, 0.6)),
@@ -1096,19 +1309,21 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
           );
         }
       }
-    } else {
-      // Show a subtle default circle when no data yet
-      _circles.add(
-        Circle(
-          circleId: const CircleId('traffic_heatmap_default'),
-          center: _heatmapCenter!,
-          radius: MapConstants.radarRadius,
-          fillColor: Colors.grey.withOpacity(0.1),
-          strokeColor: Colors.grey.withOpacity(0.3),
-          strokeWidth: 2,
-          zIndex: 0,
-        ),
-      );
+    }
+
+    // Create heatmap for origin location
+    if (_originLocation != null && _originTrafficDataPoints.isNotEmpty) {
+      createHeatmapForLocation(_originLocation!, _originTrafficDataPoints, 'origin');
+    }
+
+    // Create heatmap for destination location
+    if (_dropLocation != null && _destinationTrafficDataPoints.isNotEmpty) {
+      createHeatmapForLocation(_dropLocation!, _destinationTrafficDataPoints, 'destination');
+    }
+
+    // Also show heatmap for general center if no origin/destination set
+    if (_originLocation == null && _dropLocation == null && _heatmapCenter != null && _trafficDataPoints.isNotEmpty) {
+      createHeatmapForLocation(_heatmapCenter!, _trafficDataPoints, 'traffic');
     }
     
     setState(() {});
@@ -1679,6 +1894,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                       ],
                     ),
                     const SizedBox(height: 8),
+                    // Origin and Destination Input Fields (Google Maps style)
                     Container(
                       decoration: BoxDecoration(
                         color: Colors.white,
@@ -1694,23 +1910,97 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
+                          // Origin Input Field
                           Row(
                             children: [
-                              const Padding(
-                                padding: EdgeInsets.only(left: 16, right: 12),
-                                child: Icon(Icons.search, color: Colors.grey),
+                              Padding(
+                                padding: const EdgeInsets.only(left: 16, right: 12),
+                                child: Icon(
+                                  Icons.radio_button_checked,
+                                  color: Colors.green[700],
+                                  size: 20,
+                                ),
+                              ),
+                              Expanded(
+                                child: TextField(
+                                  controller: _originController,
+                                  focusNode: _originFocusNode,
+                                  decoration: InputDecoration(
+                                    hintText: _currentLocation != null ? 'Your location' : 'Boarding point',
+                                    border: InputBorder.none,
+                                    contentPadding: const EdgeInsets.symmetric(vertical: 16),
+                                    hintStyle: TextStyle(color: Colors.grey[400]),
+                                  ),
+                                  onChanged: (value) {
+                                    _onOriginSearchChanged(value);
+                                  },
+                                  onSubmitted: (value) {
+                                    if (value.isNotEmpty) {
+                                      _setOriginFromAddress(value);
+                                    }
+                                  },
+                                ),
+                              ),
+                              if (_currentLocation != null && _originLocation == null && _originController.text.isEmpty)
+                                IconButton(
+                                  icon: Icon(Icons.my_location, color: Colors.blue[700], size: 20),
+                                  onPressed: () {
+                                    final lat = _currentLocation!.latitude;
+                                    final lng = _currentLocation!.longitude;
+                                    if (lat != null && lng != null) {
+                                      final location = LatLng(lat, lng);
+                                      setState(() {
+                                        _originLocation = location;
+                                        _originController.text = 'Your location';
+                                      });
+                                      _addOriginLocationMarker(location);
+                                      _fetchTrafficDataForLocation(location, isOrigin: true);
+                                      if (_dropLocation != null) {
+                                        _fetchRoute(showAlternatives: true);
+                                      }
+                                    }
+                                  },
+                                  tooltip: 'Use current location',
+                                ),
+                              if (_originLocation != null || _originController.text.isNotEmpty)
+                                IconButton(
+                                  icon: const Icon(Icons.clear, color: Colors.grey, size: 20),
+                                  onPressed: () {
+                                    _originSearchDebounceTimer?.cancel();
+                                    _originController.clear();
+                                    _removeOriginLocation();
+                                    setState(() {
+                                      _originSearchSuggestions = [];
+                                      _isSearchingOrigin = false;
+                                    });
+                                  },
+                                ),
+                            ],
+                          ),
+                          // Divider
+                          Divider(height: 1, color: Colors.grey[300]),
+                          // Destination Input Field
+                          Row(
+                            children: [
+                              Padding(
+                                padding: const EdgeInsets.only(left: 16, right: 12),
+                                child: Icon(
+                                  Icons.location_on,
+                                  color: Colors.red[700],
+                                  size: 24,
+                                ),
                               ),
                               Expanded(
                                 child: TextField(
                                   controller: _destinationController,
                                   focusNode: _destinationFocusNode,
                                   decoration: const InputDecoration(
-                                    hintText: 'Search for places or tap on map',
+                                    hintText: 'Dropping point',
                                     border: InputBorder.none,
                                     contentPadding: EdgeInsets.symmetric(vertical: 16),
                                   ),
                                   onChanged: (value) {
-                                    _onSearchChanged(value);
+                                    _onDestinationSearchChanged(value);
                                   },
                                   onSubmitted: (value) {
                                     if (value.isNotEmpty) {
@@ -1721,21 +2011,21 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                               ),
                               if (_dropLocation != null || _destinationController.text.isNotEmpty)
                                 IconButton(
-                                  icon: const Icon(Icons.clear, color: Colors.grey),
+                                  icon: const Icon(Icons.clear, color: Colors.grey, size: 20),
                                   onPressed: () {
-                                    _searchDebounceTimer?.cancel();
+                                    _destinationSearchDebounceTimer?.cancel();
                                     _destinationController.clear();
                                     _removeDropLocation();
                                     setState(() {
-                                      _searchSuggestions = [];
-                                      _isSearching = false;
+                                      _destinationSearchSuggestions = [];
+                                      _isSearchingDestination = false;
                                     });
                                   },
                                 ),
                             ],
                           ),
                           // Loading indicator while searching
-                          if (_isSearching)
+                          if (_isSearchingOrigin || _isSearchingDestination)
                             Container(
                               padding: const EdgeInsets.all(16),
                               decoration: const BoxDecoration(
@@ -1765,90 +2055,29 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                                 ],
                               ),
                             ),
-                          // Search suggestions list (Google Maps-like)
-                          if (_searchSuggestions.isNotEmpty && !_isSearching)
+                          // Origin Search suggestions
+                          if (_originSearchSuggestions.isNotEmpty && !_isSearchingOrigin && _originFocusNode.hasFocus)
                             Container(
-                              constraints: const BoxConstraints(maxHeight: 300),
+                              constraints: const BoxConstraints(maxHeight: 200),
                               decoration: const BoxDecoration(
                                 color: Colors.white,
                                 border: Border(
                                   top: BorderSide(color: Colors.grey, width: 0.5),
                                 ),
                               ),
-                              child: ListView.builder(
-                                shrinkWrap: true,
-                                physics: const ClampingScrollPhysics(),
-                                itemCount: _searchSuggestions.length,
-                                itemBuilder: (context, index) {
-                                  final suggestion = _searchSuggestions[index];
-                                  final description = suggestion['description'] as String;
-                                  final structuredFormatting = suggestion['structured_formatting'] as Map<String, dynamic>?;
-                                  
-                                  return Material(
-                                    color: Colors.transparent,
-                                    child: InkWell(
-                                      onTap: () {
-                                        _setDestinationFromPlaceId(
-                                          suggestion['place_id'] as String,
-                                          description,
-                                        );
-                                      },
-                                      child: Padding(
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: 16,
-                                          vertical: 12,
-                                        ),
-                                        child: Row(
-                                          crossAxisAlignment: CrossAxisAlignment.start,
-                                          children: [
-                                            const Icon(
-                                              Icons.location_on,
-                                              color: Colors.red,
-                                              size: 24,
-                                            ),
-                                            const SizedBox(width: 12),
-                                            Expanded(
-                                              child: Column(
-                                                crossAxisAlignment: CrossAxisAlignment.start,
-                                                mainAxisSize: MainAxisSize.min,
-                                                children: [
-                                                  // Main text (like Google Maps)
-                                                  Text(
-                                                    structuredFormatting != null
-                                                        ? (structuredFormatting['main_text'] as String? ?? description)
-                                                        : description,
-                                                    style: const TextStyle(
-                                                      fontSize: 15,
-                                                      fontWeight: FontWeight.w500,
-                                                      color: Colors.black87,
-                                                    ),
-                                                    maxLines: 1,
-                                                    overflow: TextOverflow.ellipsis,
-                                                  ),
-                                                  // Secondary text (like Google Maps)
-                                                  if (structuredFormatting != null)
-                                                    Padding(
-                                                      padding: const EdgeInsets.only(top: 2),
-                                                      child: Text(
-                                                        structuredFormatting['secondary_text'] as String? ?? '',
-                                                        style: TextStyle(
-                                                          fontSize: 13,
-                                                          color: Colors.grey[600],
-                                                        ),
-                                                        maxLines: 1,
-                                                        overflow: TextOverflow.ellipsis,
-                                                      ),
-                                                    ),
-                                                ],
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                    ),
-                                  );
-                                },
+                              child: _buildSuggestionsList(_originSearchSuggestions, isOrigin: true),
+                            ),
+                          // Destination Search suggestions
+                          if (_destinationSearchSuggestions.isNotEmpty && !_isSearchingDestination && _destinationFocusNode.hasFocus)
+                            Container(
+                              constraints: const BoxConstraints(maxHeight: 200),
+                              decoration: const BoxDecoration(
+                                color: Colors.white,
+                                border: Border(
+                                  top: BorderSide(color: Colors.grey, width: 0.5),
+                                ),
                               ),
+                              child: _buildSuggestionsList(_destinationSearchSuggestions, isOrigin: false),
                             ),
                         ],
                       ),
@@ -2430,6 +2659,89 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
           ),
         ],
       ),
+    );
+  }
+
+  /// Build suggestions list widget
+  Widget _buildSuggestionsList(List<Map<String, dynamic>> suggestions, {required bool isOrigin}) {
+    return ListView.builder(
+      shrinkWrap: true,
+      physics: const ClampingScrollPhysics(),
+      itemCount: suggestions.length,
+      itemBuilder: (context, index) {
+        final suggestion = suggestions[index];
+        final description = suggestion['description'] as String;
+        final structuredFormatting = suggestion['structured_formatting'] as Map<String, dynamic>?;
+        
+        return Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: () {
+              if (isOrigin) {
+                _setOriginFromPlaceId(
+                  suggestion['place_id'] as String,
+                  description,
+                );
+              } else {
+                _setDestinationFromPlaceId(
+                  suggestion['place_id'] as String,
+                  description,
+                );
+              }
+            },
+            child: Padding(
+              padding: const EdgeInsets.symmetric(
+                horizontal: 16,
+                vertical: 12,
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(
+                    isOrigin ? Icons.radio_button_checked : Icons.location_on,
+                    color: isOrigin ? Colors.green[700] : Colors.red[700],
+                    size: 24,
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          structuredFormatting != null
+                              ? (structuredFormatting['main_text'] as String? ?? description)
+                              : description,
+                          style: const TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w500,
+                            color: Colors.black87,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        if (structuredFormatting != null)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 2),
+                            child: Text(
+                              structuredFormatting['secondary_text'] as String? ?? '',
+                              style: TextStyle(
+                                fontSize: 13,
+                                color: Colors.grey[600],
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 
