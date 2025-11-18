@@ -71,11 +71,11 @@ class GeminiAIService {
     required List<TrafficAlert> currentAlerts,
     DateTime? currentTime,
   }) async {
+    final time = currentTime ?? DateTime.now();
+    final hour = time.hour;
+    final dayOfWeek = time.weekday; // 1 = Monday, 7 = Sunday
+    
     try {
-      final time = currentTime ?? DateTime.now();
-      final hour = time.hour;
-      final dayOfWeek = time.weekday; // 1 = Monday, 7 = Sunday
-      
       // Build context for AI
       final context = _buildHyperlocalContext(
         location: location,
@@ -123,7 +123,7 @@ Format your response as JSON:
       return _generateFallbackPrediction(nearbyPlaces, currentAlerts, hour, dayOfWeek);
     } catch (e) {
       print('Error getting AI prediction: $e');
-      return _generateFallbackPrediction(nearbyPlaces, currentAlerts, time.hour, time.weekday);
+      return _generateFallbackPrediction(nearbyPlaces, currentAlerts, hour, dayOfWeek);
     }
   }
 
@@ -138,7 +138,6 @@ Format your response as JSON:
   }) async {
     try {
       final time = currentTime ?? DateTime.now();
-      final hour = time.hour;
       
       final prompt = '''
 You are an AI assistant helping hyperlocal residents find the best routes considering:
@@ -188,10 +187,10 @@ Provide route recommendation in JSON:
     required List<NearbyPlace> places,
     DateTime? currentTime,
   }) async {
+    final time = currentTime ?? DateTime.now();
+    final hour = time.hour;
+    
     try {
-      final time = currentTime ?? DateTime.now();
-      final hour = time.hour;
-      
       final prompt = '''
 Analyze these hyperlocal businesses and provide insights:
 
@@ -215,7 +214,7 @@ Format as JSON array of insights.
       return _generateFallbackBusinessInsights(places, hour);
     } catch (e) {
       print('Error getting business insights: $e');
-      return _generateFallbackBusinessInsights(places, time.hour);
+      return _generateFallbackBusinessInsights(places, hour);
     }
   }
 
@@ -539,4 +538,3 @@ Format as JSON array of insights.
     }
   }
 }
-

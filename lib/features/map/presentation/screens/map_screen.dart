@@ -55,7 +55,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
   bool _isSearchingDestination = false;
   Timer? _originSearchDebounceTimer;
   Timer? _destinationSearchDebounceTimer;
-  String? _activeSearchField; // 'origin' or 'destination'
+// 'origin' or 'destination'
   RouteDetails? _routeDetails;
   List<RouteDetails> _alternativeRoutes = [];
   int _selectedRouteIndex = 0;
@@ -1022,10 +1022,8 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
       if (_originLocation != null) {
         final originLat = _originLocation!.latitude;
         final originLng = _originLocation!.longitude;
-        if (originLat != null && originLng != null) {
-          _updateRealTimeDistanceAndETA(LatLng(originLat, originLng));
-        }
-      }
+        _updateRealTimeDistanceAndETA(LatLng(originLat, originLng));
+            }
       
       // Smoothly animate camera to show the full path
       await _animateToShowPath();
@@ -1045,10 +1043,8 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
       if (_originLocation != null) {
         final originLat = _originLocation!.latitude;
         final originLng = _originLocation!.longitude;
-        if (originLat != null && originLng != null) {
-          _updateRealTimeDistanceAndETA(LatLng(originLat, originLng));
-        }
-      }
+        _updateRealTimeDistanceAndETA(LatLng(originLat, originLng));
+            }
       
       // Smoothly animate camera to show the full path
       await _animateToShowPath();
@@ -1058,7 +1054,6 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
   /// Handle origin search text changes with debouncing
   void _onOriginSearchChanged(String query) {
     _originSearchDebounceTimer?.cancel();
-    _activeSearchField = 'origin';
     
     final trimmedQuery = query.trim();
     
@@ -1091,7 +1086,6 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
   /// Handle destination search text changes with debouncing
   void _onDestinationSearchChanged(String query) {
     _destinationSearchDebounceTimer?.cancel();
-    _activeSearchField = 'destination';
     
     final trimmedQuery = query.trim();
     
@@ -1373,8 +1367,6 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     // Always update traffic heatmap when location changes (if center is user location)
     // Only auto-update if heatmap center matches user location (not when user tapped elsewhere)
     if (_showTrafficHeatmap && _heatmapCenter != null) {
-      final heatmapLat = _heatmapCenter!.latitude;
-      final heatmapLng = _heatmapCenter!.longitude;
       // Check if heatmap center is close to user location (within 50m)
       final distance = _calculateDistance(_heatmapCenter!, location);
       if (distance < 50) {
