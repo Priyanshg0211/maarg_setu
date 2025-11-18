@@ -58,9 +58,29 @@ class _ARNavigationScreenState extends State<ARNavigationScreen> with WidgetsBin
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     super.didChangeAppLifecycleState(state);
-    // Re-check camera permission when app comes back to foreground
-    if (state == AppLifecycleState.resumed && !_isCameraInitialized) {
-      _checkAndInitializeCamera();
+    final controller = _cameraController;
+    
+    if (controller == null || !controller.value.isInitialized) {
+      if (state == AppLifecycleState.resumed && !_isCameraInitialized) {
+        _checkAndInitializeCamera();
+      }
+      return;
+    }
+    
+    if (state == AppLifecycleState.inactive) {
+      // Camera is going to be paused
+      controller.stopImageStream();
+    } else if (state == AppLifecycleState.resumed) {
+      // Re-check camera permission when app comes back to foreground
+      if (!_isCameraInitialized) {
+        _checkAndInitializeCamera();
+      } else {
+        // Camera is already initialized, just ensure it's working
+        setState(() {});
+      }
+    } else if (state == AppLifecycleState.paused) {
+      // Don't dispose on pause, just stop the stream
+      controller.stopImageStream();
     }
   }
   
@@ -71,6 +91,11 @@ class _ARNavigationScreenState extends State<ARNavigationScreen> with WidgetsBin
   }
   
   Future<void> _checkAndInitializeCamera() async {
+    // Dispose existing camera first
+    await _disposeCamera();
+    // Small delay to ensure cleanup
+    await Future.delayed(const Duration(milliseconds: 300));
+    // Re-initialize
     await _initializeCamera();
   }
   
@@ -117,27 +142,49 @@ class _ARNavigationScreenState extends State<ARNavigationScreen> with WidgetsBin
         return;
       }
       
-      // Use back camera
-      final backCamera = _cameras!.firstWhere(
-        (camera) => camera.lensDirection == CameraLensDirection.back,
-        orElse: () => _cameras!.first,
-      );
+      // Use back camera, prefer back camera for AR
+      CameraDescription? backCamera;
+      try {
+        backCamera = _cameras!.firstWhere(
+          (camera) => camera.lensDirection == CameraLensDirection.back,
+        );
+      } catch (e) {
+        // If no back camera found, use first available
+        backCamera = _cameras!.first;
+        debugPrint('Back camera not found, using: ${backCamera.name}');
+      }
+      
+      // Dispose existing controller if any
+      await _cameraController?.dispose();
+      _cameraController = null;
+      
+      debugPrint('Initializing camera: ${backCamera.name}');
       
       _cameraController = CameraController(
         backCamera,
-        ResolutionPreset.high,
+        ResolutionPreset.medium, // Changed from high to medium for better compatibility
         enableAudio: false,
       );
       
       await _cameraController!.initialize();
       
+      // Verify camera is actually initialized
+      if (!_cameraController!.value.isInitialized) {
+        throw Exception('Camera failed to initialize');
+      }
+      
+      // Small delay to ensure camera is ready
+      await Future.delayed(const Duration(milliseconds: 100));
+      
       if (mounted) {
         setState(() {
           _isCameraInitialized = true;
         });
+        debugPrint('Camera initialized successfully');
       }
-    } catch (e) {
+    } catch (e, stackTrace) {
       debugPrint('Error initializing camera: $e');
+      debugPrint('Stack trace: $stackTrace');
       if (mounted) {
         setState(() {
           _hasPermission = false;
@@ -145,11 +192,15 @@ class _ARNavigationScreenState extends State<ARNavigationScreen> with WidgetsBin
         });
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Camera error: $e'),
+            content: Text('Camera error: ${e.toString()}'),
             backgroundColor: Colors.red,
+            duration: const Duration(seconds: 5),
           ),
         );
       }
+      // Dispose controller on error
+      await _cameraController?.dispose();
+      _cameraController = null;
     }
   }
   
@@ -185,6 +236,16 @@ class _ARNavigationScreenState extends State<ARNavigationScreen> with WidgetsBin
     _arService.stopListening();
     _arService.bearingNotifier.removeListener(_onBearingChanged);
     super.dispose();
+  }
+  
+  Future<void> _disposeCamera() async {
+    await _cameraController?.dispose();
+    _cameraController = null;
+    if (mounted) {
+      setState(() {
+        _isCameraInitialized = false;
+      });
+    }
   }
   
   LatLng? get _currentLatLng {
@@ -245,8 +306,8 @@ class _ARNavigationScreenState extends State<ARNavigationScreen> with WidgetsBin
       body: Stack(
         children: [
           // Camera Preview
-          if (_isCameraInitialized && _cameraController != null)
-            SizedBox.expand(
+          if (_isCameraInitialized && _cameraController != null && _cameraController!.value.isInitialized)
+            Positioned.fill(
               child: CameraPreview(_cameraController!),
             )
           else if (!_hasPermission)
