@@ -5,6 +5,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:location/location.dart';
 
 import '../../../../core/constants/map_constants.dart';
@@ -2988,24 +2989,24 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                           _startNavigation();
                         },
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.blue,
+                          backgroundColor: Colors.black,
                           padding: const EdgeInsets.symmetric(vertical: 18),
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(12),
                           ),
                           elevation: 2,
                         ),
-                        child: const Row(
+                        child: Row(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            Icon(Icons.navigation, color: Colors.white, size: 24),
-                            SizedBox(width: 8),
+                            const Icon(Icons.navigation, color: Colors.white, size: 24),
+                            const SizedBox(width: 8),
                             Text(
                               'Start Navigation',
-                              style: TextStyle(
+                              style: GoogleFonts.montserrat(
                                 color: Colors.white,
                                 fontSize: 18,
-                                fontWeight: FontWeight.bold,
+                                fontWeight: FontWeight.w500,
                                 letterSpacing: 0.5,
                               ),
                             ),
@@ -4453,15 +4454,15 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                               child: ElevatedButton(
                                 onPressed: _startNavigation,
                                 style: ElevatedButton.styleFrom(
-                                  backgroundColor: Colors.blue,
+                                  backgroundColor: Colors.black,
                                   padding: const EdgeInsets.symmetric(vertical: 16),
                                 ),
-                                child: const Text(
+                                child: Text(
                                   'Start Navigation',
-                                  style: TextStyle(
+                                  style: GoogleFonts.montserrat(
                                     color: Colors.white,
                                     fontSize: 16,
-                                    fontWeight: FontWeight.bold,
+                                    fontWeight: FontWeight.w500,
                                   ),
                                 ),
                               ),

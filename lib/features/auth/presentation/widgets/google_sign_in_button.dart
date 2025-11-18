@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 
 class GoogleSignInButton extends StatelessWidget {
   final VoidCallback? onPressed;
@@ -29,9 +30,11 @@ class GoogleSignInButton extends StatelessWidget {
             : const Icon(Icons.g_mobiledata, color: Colors.white, size: 24),
         label: Text(
           isLoading ? 'Signing in...' : 'Sign in with Google',
-          style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                color: Colors.white,
-              ),
+          style: GoogleFonts.montserrat(
+            fontSize: 16,
+            fontWeight: FontWeight.w500,
+            color: Colors.white,
+          ),
         ),
         style: ElevatedButton.styleFrom(
           backgroundColor: Colors.black,
