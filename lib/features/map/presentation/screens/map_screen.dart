@@ -98,6 +98,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
   bool _isLoadingAIPrediction = false;
   bool _isBottomSheetOpen = false; // Track if bottom sheet is currently open
   DateTime? _lastBottomSheetOpenTime; // Track when bottom sheet was last opened
+  bool _hasShownRouteBottomSheet = false; // Track if route bottom sheet has been shown once
   
   AnimationController? _markerAnimationController;
   LatLng? _previousLocation;
@@ -226,11 +227,11 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
       await _autoPanDuringNavigation(newLocation);
     }
 
-    // Real-time rerouting if navigating
-    if (_isNavigating && _dropLocation != null) {
+    // Real-time rerouting if navigating (only if not already loading)
+    if (_isNavigating && _dropLocation != null && !_isLoadingRoute) {
       _rerouteIfNeeded(newLocation);
-    } else if (_dropLocation != null && !_isLoadingRoute) {
-      // Always ensure route is fetched when drop location is set
+    } else if (_dropLocation != null && !_isLoadingRoute && !_isNavigating) {
+      // Always ensure route is fetched when drop location is set (but not navigating)
       if (_routeDetails == null) {
         _fetchRoute();
       }
@@ -523,6 +524,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
       _destinationController.clear();
       _markers.removeWhere((marker) => marker.markerId.value == 'dropLocation');
       _destinationTrafficDataPoints = [];
+      _hasShownRouteBottomSheet = false; // Reset flag when destination is removed
     });
     
     // Update route if origin is still set
@@ -892,17 +894,15 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
         _isLoadingRoute = false;
       });
       
-      // Show success message when route is found (non-blocking)
-      if (routes.isNotEmpty) {
+      // Show route bottom sheet only once when route is found
+      if (routes.isNotEmpty && !_hasShownRouteBottomSheet) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
-          String message = 'Optimal route found!';
-          
-          // Add AI insights if available (will update when AI completes)
-          if (_aiRouteRecommendation != null) {
-            message += ' ${_aiRouteRecommendation!.recommendation}';
-          }
-          
-          _showSnackBar(message);
+          // Wait a bit for AI data to load, then show bottom sheet
+          Future.delayed(const Duration(milliseconds: 1500), () {
+            if (mounted && !_hasShownRouteBottomSheet && _routeDetails != null) {
+              _showRouteBottomSheet();
+            }
+          });
         });
       }
     } catch (e) {
@@ -914,6 +914,20 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
   }
 
 
+  /// Update route polylines on the map
+  /// 
+  /// HOW POLYLINE IS FORMED:
+  /// The polyline points come from Google Directions API which provides step-level polylines.
+  /// Each navigation step contains a detailed encoded polyline string that precisely follows
+  /// the road geometry. These step polylines are decoded and combined to create the complete
+  /// route path. This ensures the route follows roads exactly like Google Maps, not straight lines.
+  /// 
+  /// The polyline formation process:
+  /// 1. Google Directions API returns route with step-level polylines (most accurate)
+  /// 2. Each step's polyline is decoded using google_polyline_algorithm package
+  /// 3. All step polylines are combined into route.points (List<LatLng>)
+  /// 4. These points are rendered as Polyline widgets on the map
+  /// 5. The polyline follows roads exactly because it uses actual road geometry data
   void _updateRoutePolylines() {
     _polylines.clear();
     _polygons.clear();
@@ -923,6 +937,8 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
       final isSelected = i == _selectedRouteIndex;
       
       // Add polyline for the route path with Google Maps-like styling
+      // route.points contains decoded LatLng coordinates from step-level polylines
+      // These points follow roads exactly, not straight lines
       _polylines.add(
         Polyline(
           polylineId: PolylineId('route_$i'),
@@ -1748,49 +1764,81 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     }
   }
 
+  /// Move camera to a specific location with smooth animation
+  /// Used for initial positioning and non-navigation camera movements
   Future<void> _moveCameraToLocation(
     LocationData locationData, {
     LatLng? snappedLocation,
   }) async {
-    final latitude = locationData.latitude;
-    final longitude = locationData.longitude;
-    if (latitude == null || longitude == null) return;
+    try {
+      final latitude = locationData.latitude;
+      final longitude = locationData.longitude;
+      if (latitude == null || longitude == null) return;
 
-    final position = snappedLocation ?? LatLng(latitude, longitude);
-    final controller = await _controller.future;
-    
-    await controller.animateCamera(
-      CameraUpdate.newCameraPosition(
-        CameraPosition(
-          target: position,
-          zoom: MapConstants.defaultZoom,
-          bearing: locationData.heading?.toDouble() ?? 0,
-        ),
-      ),
-    );
-  }
-
-  Future<void> _autoPanDuringNavigation(LatLng location) async {
-    final controller = await _controller.future;
-    final currentPosition = await controller.getVisibleRegion();
-    
-    // Check if location is within visible region
-    final isVisible = _isLocationVisible(location, currentPosition);
-    
-    if (!isVisible) {
+      final position = snappedLocation ?? LatLng(latitude, longitude);
+      final controller = await _controller.future;
+      
       await controller.animateCamera(
         CameraUpdate.newCameraPosition(
           CameraPosition(
-            target: location,
-            zoom: 17.0, // Closer zoom during navigation
-            bearing: _currentLocation?.heading?.toDouble() ?? 0,
-            tilt: 45.0, // Slight tilt for better navigation view
+            target: position,
+            zoom: MapConstants.defaultZoom,
+            bearing: locationData.heading?.toDouble() ?? 0,
+            tilt: 0, // No tilt when not navigating
           ),
         ),
       );
+    } catch (e) {
+      // Silently handle camera errors
+      print('Camera movement error: $e');
     }
   }
 
+  /// Auto-pan camera during navigation to keep user location visible
+  /// This ensures smooth navigation experience like Google Maps
+  Future<void> _autoPanDuringNavigation(LatLng location) async {
+    try {
+      final controller = await _controller.future;
+      final visibleRegion = await controller.getVisibleRegion();
+      
+      // Check if location is within visible region with some padding
+      final isVisible = _isLocationVisible(location, visibleRegion);
+      
+      if (!isVisible) {
+        // Get current heading for proper camera bearing
+        final heading = _currentLocation?.heading?.toDouble() ?? 0;
+        
+        await controller.animateCamera(
+          CameraUpdate.newCameraPosition(
+            CameraPosition(
+              target: location,
+              zoom: 17.0, // Closer zoom during navigation for better detail
+              bearing: heading, // Use device heading for proper orientation
+              tilt: 45.0, // Slight tilt for better navigation view (3D effect)
+            ),
+          ),
+        );
+      } else {
+        // Smoothly update camera position even if visible to follow movement
+        final heading = _currentLocation?.heading?.toDouble() ?? 0;
+        await controller.animateCamera(
+          CameraUpdate.newCameraPosition(
+            CameraPosition(
+              target: location,
+              zoom: 17.0,
+              bearing: heading,
+              tilt: 45.0,
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      // Silently handle camera errors during navigation
+      print('Camera pan error during navigation: $e');
+    }
+  }
+
+  /// Check if location is visible within the map bounds
   bool _isLocationVisible(LatLng location, LatLngBounds bounds) {
     return location.latitude >= bounds.southwest.latitude &&
         location.latitude <= bounds.northeast.latitude &&
@@ -2106,6 +2154,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     }
   }
 
+  /// Start navigation mode with proper camera positioning and route updates
   void _startNavigation() {
     if (_routeDetails == null) return;
     
@@ -2120,11 +2169,29 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
       _currentStepIndex = 0;
     });
     
-    // Move camera to navigation view immediately (non-blocking)
+    // Move camera to navigation view immediately with proper zoom and tilt
     if (_currentLocation != null) {
-      _moveCameraToLocation(_currentLocation!, snappedLocation: _snappedCurrentLocation).catchError((e) {
-        // Silently handle any camera errors
-        print('Camera movement error: $e');
+      final controller = _controller.future;
+      controller.then((mapController) {
+        final lat = _currentLocation!.latitude;
+        final lng = _currentLocation!.longitude;
+        if (lat != null && lng != null) {
+          final position = _snappedCurrentLocation ?? LatLng(lat, lng);
+          final heading = _currentLocation!.heading?.toDouble() ?? 0;
+          
+          mapController.animateCamera(
+            CameraUpdate.newCameraPosition(
+              CameraPosition(
+                target: position,
+                zoom: 17.0, // Closer zoom for navigation
+                bearing: heading,
+                tilt: 45.0, // 3D navigation view
+              ),
+            ),
+          ).catchError((e) {
+            print('Navigation camera error: $e');
+          });
+        }
       });
     }
     
@@ -2132,6 +2199,15 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _updateRoutePeriodically();
     });
+    
+    // Update current step immediately
+    if (_currentLocation != null) {
+      final lat = _currentLocation!.latitude;
+      final lng = _currentLocation!.longitude;
+      if (lat != null && lng != null) {
+        _updateCurrentStep(LatLng(lat, lng));
+      }
+    }
   }
 
   void _stopNavigation() {
@@ -2152,6 +2228,651 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
         behavior: SnackBarBehavior.floating,
         duration: const Duration(seconds: 3),
       ),
+    );
+  }
+
+  /// Show route bottom sheet with all information and Start Navigation button (only once)
+  void _showRouteBottomSheet() {
+    if (!mounted || _isBottomSheetOpen || _routeDetails == null) return;
+    
+    _isBottomSheetOpen = true;
+    _hasShownRouteBottomSheet = true;
+    _lastBottomSheetOpenTime = DateTime.now();
+    
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      enableDrag: true,
+      isDismissible: true,
+      useSafeArea: true,
+      builder: (context) => DraggableScrollableSheet(
+        initialChildSize: 0.75,
+        minChildSize: 0.5,
+        maxChildSize: 0.95,
+        builder: (context, scrollController) => Container(
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+          ),
+          child: Column(
+            children: [
+              // Drag Handle
+              Container(
+                margin: const EdgeInsets.only(top: 12, bottom: 8),
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.grey[300],
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              // Header
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: Colors.blue[50],
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Icon(
+                        Icons.route,
+                        color: Colors.blue[700],
+                        size: 24,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Route Found',
+                            style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.grey[900],
+                              letterSpacing: -0.5,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            '${_routeDetails!.distance} • ${_routeDetails!.duration}',
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: Colors.grey[600],
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    IconButton(
+                      icon: Icon(Icons.close, color: Colors.grey[600]),
+                      onPressed: () {
+                        _isBottomSheetOpen = false;
+                        Navigator.pop(context);
+                      },
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(),
+                    ),
+                  ],
+                ),
+              ),
+              // Content
+              Expanded(
+                child: ListView(
+                  controller: scrollController,
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  children: [
+                    // Route Summary
+                    Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: Colors.blue[50],
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: Colors.blue[100]!,
+                          width: 1,
+                        ),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Icon(Icons.directions, color: Colors.blue[700], size: 20),
+                              const SizedBox(width: 8),
+                              Text(
+                                'Route Summary',
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w600,
+                                  color: Colors.grey[900],
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 12),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: _buildInfoItem(
+                                  Icons.straighten,
+                                  'Distance',
+                                  _routeDetails!.distance,
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: _buildInfoItem(
+                                  Icons.access_time,
+                                  'Duration',
+                                  _routeDetails!.duration,
+                                ),
+                              ),
+                            ],
+                          ),
+                          if (_aiRouteRecommendation != null && _aiRouteRecommendation!.timeSavings > 0) ...[
+                            const SizedBox(height: 12),
+                            Container(
+                              padding: const EdgeInsets.all(10),
+                              decoration: BoxDecoration(
+                                color: Colors.green[50],
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Row(
+                                children: [
+                                  Icon(Icons.timer_outlined, color: Colors.green[700], size: 16),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    'Saves ${_aiRouteRecommendation!.timeSavings.toStringAsFixed(0)} min',
+                                    style: TextStyle(
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w600,
+                                      color: Colors.green[700],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+                    
+                    // AI Route Recommendation
+                    if (_aiRouteRecommendation != null) ...[
+                      Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                              color: Colors.purple[50],
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Icon(
+                              Icons.auto_awesome,
+                              color: Colors.purple[700],
+                              size: 20,
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Text(
+                            'AI Recommendation',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.grey[900],
+                              letterSpacing: -0.3,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      Container(
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: Colors.purple[50],
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: Colors.purple[200]!,
+                            width: 1,
+                          ),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              _aiRouteRecommendation!.recommendation,
+                              style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w600,
+                                color: Colors.grey[900],
+                                height: 1.4,
+                              ),
+                            ),
+                            if (_aiRouteRecommendation!.reasoning.isNotEmpty) ...[
+                              const SizedBox(height: 8),
+                              Text(
+                                _aiRouteRecommendation!.reasoning,
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  color: Colors.grey[700],
+                                  height: 1.5,
+                                ),
+                              ),
+                            ],
+                            if (_aiRouteRecommendation!.benefits.isNotEmpty) ...[
+                              const SizedBox(height: 12),
+                              ..._aiRouteRecommendation!.benefits.take(3).map((benefit) => Padding(
+                                padding: const EdgeInsets.only(bottom: 6),
+                                child: Row(
+                                  children: [
+                                    Icon(Icons.check_circle, color: Colors.green[700], size: 16),
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: Text(
+                                        benefit,
+                                        style: TextStyle(
+                                          fontSize: 13,
+                                          color: Colors.grey[800],
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              )),
+                            ],
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 20),
+                    ],
+                    
+                    // Traffic Alerts Section
+                    if (_trafficAlerts.isNotEmpty) ...[
+                      Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                              color: Colors.orange[50],
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Icon(
+                              Icons.warning_amber_rounded,
+                              color: Colors.orange[700],
+                              size: 20,
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Text(
+                            'Traffic Alerts',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.grey[900],
+                              letterSpacing: -0.3,
+                            ),
+                          ),
+                          const Spacer(),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: Colors.orange[100],
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Text(
+                              '${_trafficAlerts.length}',
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.orange[800],
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      ..._trafficAlerts.take(3).map((alert) => Container(
+                        margin: const EdgeInsets.only(bottom: 12),
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: Colors.orange[50],
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: Colors.orange[200]!,
+                            width: 1,
+                          ),
+                        ),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Container(
+                              width: 10,
+                              height: 10,
+                              margin: const EdgeInsets.only(top: 4),
+                              decoration: BoxDecoration(
+                                color: alert.severity >= 0.8
+                                    ? Colors.red
+                                    : alert.severity >= 0.5
+                                        ? Colors.orange
+                                        : Colors.yellow[700]!,
+                                shape: BoxShape.circle,
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Text(
+                                alert.message,
+                                style: const TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w600,
+                                  color: Colors.black87,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      )),
+                      const SizedBox(height: 20),
+                    ],
+                    
+                    // Local Businesses Section
+                    if (_businessInsights.isNotEmpty) ...[
+                      Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                              color: Colors.orange[50],
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Icon(
+                              Icons.store,
+                              color: Colors.orange[700],
+                              size: 20,
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Text(
+                            'Local Businesses',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.grey[900],
+                              letterSpacing: -0.3,
+                            ),
+                          ),
+                          const Spacer(),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: Colors.orange[100],
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Text(
+                              '${_businessInsights.length}',
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.orange[800],
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      ..._businessInsights.take(3).map((insight) => Container(
+                        margin: const EdgeInsets.only(bottom: 12),
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: Colors.grey[200]!,
+                            width: 1,
+                          ),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              insight.businessName,
+                              style: const TextStyle(
+                                fontSize: 15,
+                                fontWeight: FontWeight.w600,
+                                color: Colors.black87,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Row(
+                              children: [
+                                Icon(Icons.access_time, size: 16, color: Colors.grey[600]),
+                                const SizedBox(width: 6),
+                                Text(
+                                  'Peak: ${insight.peakHours}',
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    color: Colors.grey[700],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      )),
+                      const SizedBox(height: 20),
+                    ],
+                    
+                    // Alternative Routes
+                    if (_alternativeRoutes.length > 1) ...[
+                      Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                              color: Colors.grey[100],
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Icon(
+                              Icons.alt_route,
+                              color: Colors.grey[700],
+                              size: 20,
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Text(
+                            'Alternative Routes',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.grey[900],
+                              letterSpacing: -0.3,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      SizedBox(
+                        height: 80,
+                        child: ListView.builder(
+                          scrollDirection: Axis.horizontal,
+                          itemCount: _alternativeRoutes.length,
+                          itemBuilder: (context, index) {
+                            final route = _alternativeRoutes[index];
+                            final isSelected = index == _selectedRouteIndex;
+                            return GestureDetector(
+                              onTap: () {
+                                setState(() {
+                                  _selectedRouteIndex = index;
+                                  _routeDetails = route;
+                                  _updateRoutePolylines();
+                                });
+                              },
+                              child: Container(
+                                margin: const EdgeInsets.only(right: 8),
+                                padding: const EdgeInsets.all(12),
+                                decoration: BoxDecoration(
+                                  color: isSelected ? Colors.blue[50] : Colors.grey[100],
+                                  border: Border.all(
+                                    color: isSelected ? Colors.blue : Colors.transparent,
+                                    width: 2,
+                                  ),
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Text(
+                                      route.duration,
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        color: isSelected ? Colors.blue : Colors.black,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      route.distance,
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        color: Colors.grey[600],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                      const SizedBox(height: 20),
+                    ],
+                    
+                    // Polyline Explanation
+                    Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: Colors.grey[50],
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: Colors.grey[200]!,
+                          width: 1,
+                        ),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Icon(Icons.info_outline, color: Colors.blue[700], size: 20),
+                              const SizedBox(width: 8),
+                              Text(
+                                'How Polyline is Formed',
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w600,
+                                  color: Colors.grey[900],
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 12),
+                          Text(
+                            'The route polyline follows roads exactly like Google Maps by using step-level polylines from Google Directions API. Each navigation step contains a detailed polyline that precisely follows the road geometry, ensuring accurate road-following paths rather than straight lines.',
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: Colors.grey[700],
+                              height: 1.5,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+                    
+                    // Start Navigation Button
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton(
+                        onPressed: () {
+                          Navigator.pop(context);
+                          _isBottomSheetOpen = false;
+                          _startNavigation();
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.blue,
+                          padding: const EdgeInsets.symmetric(vertical: 18),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          elevation: 2,
+                        ),
+                        child: const Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.navigation, color: Colors.white, size: 24),
+                            SizedBox(width: 8),
+                            Text(
+                              'Start Navigation',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 18,
+                                fontWeight: FontWeight.bold,
+                                letterSpacing: 0.5,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    ).then((_) {
+      _isBottomSheetOpen = false;
+    }).catchError((_) {
+      _isBottomSheetOpen = false;
+    });
+  }
+
+  Widget _buildInfoItem(IconData icon, String label, String value) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Icon(icon, size: 16, color: Colors.grey[600]),
+            const SizedBox(width: 4),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 12,
+                color: Colors.grey[600],
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 4),
+        Text(
+          value,
+          style: const TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.bold,
+            color: Colors.black87,
+          ),
+        ),
+      ],
     );
   }
 
