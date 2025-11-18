@@ -12,6 +12,8 @@ import '../../services/location_service.dart';
 import '../../services/directions_service.dart';
 import '../../services/geocoding_service.dart';
 import '../../services/traffic_service.dart';
+import '../../services/nearby_places_service.dart';
+import '../../services/route_optimizer_service.dart';
 import '../../../../features/auth/services/auth_service.dart';
 
 class MapScreen extends StatefulWidget {
@@ -27,6 +29,8 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
   final DirectionsService _directionsService = DirectionsService();
   final GeocodingService _geocodingService = GeocodingService();
   final TrafficService _trafficService = TrafficService();
+  final NearbyPlacesService _nearbyPlacesService = NearbyPlacesService();
+  final RouteOptimizerService _routeOptimizerService = RouteOptimizerService();
   final AuthService _authService = AuthService();
   final TextEditingController _originController = TextEditingController();
   final TextEditingController _destinationController = TextEditingController();
@@ -79,12 +83,20 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
   LatLng? _lastTrafficUpdateLocation;
   LatLng? _heatmapCenter; // Center point for heatmap (user location or tapped location)
   
+  // Nearby places and traffic alerts
+  List<TrafficAlert> _trafficAlerts = [];
+  List<NearbyPlace> _nearbyPlaces = [];
+  bool _isLoadingPlaces = false;
+  bool _useOptimizedRoutes = true; // Use optimized routes by default
+  
   AnimationController? _markerAnimationController;
   LatLng? _previousLocation;
   
   // Cache for arrow icon to avoid recreating it frequently
   BitmapDescriptor? _cachedArrowIcon;
   double? _cachedArrowBearing;
+
+  Timer? _placesUpdateTimer;
 
   @override
   void initState() {
@@ -94,6 +106,25 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
       duration: const Duration(milliseconds: 500),
     );
     _initLocationUpdates();
+    
+    // Periodically update nearby places detection (every 30 seconds)
+    _placesUpdateTimer = Timer.periodic(const Duration(seconds: 30), (timer) {
+      if (_currentLocation != null) {
+        final lat = _currentLocation!.latitude;
+        final lng = _currentLocation!.longitude;
+        if (lat != null && lng != null) {
+          _detectNearbyPlacesAndAlerts(LatLng(lat, lng));
+        }
+      }
+      
+      // Also detect for origin and destination
+      if (_originLocation != null) {
+        _detectNearbyPlacesAndAlerts(_originLocation!);
+      }
+      if (_dropLocation != null) {
+        _detectNearbyPlacesAndAlerts(_dropLocation!);
+      }
+    });
   }
 
   @override
@@ -108,6 +139,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     _destinationSearchDebounceTimer?.cancel();
     _routeUpdateTimer?.cancel();
     _trafficUpdateTimer?.cancel();
+    _placesUpdateTimer?.cancel();
     super.dispose();
   }
 
@@ -549,6 +581,44 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     }
   }
 
+  /// Detect nearby places and generate traffic alerts
+  Future<void> _detectNearbyPlacesAndAlerts(LatLng center) async {
+    if (_isLoadingPlaces) return;
+    
+    setState(() {
+      _isLoadingPlaces = true;
+    });
+
+    try {
+      // Find nearby places within radar radius
+      final places = await _nearbyPlacesService.findNearbyPlaces(
+        center: center,
+        radiusMeters: MapConstants.radarRadius,
+      );
+
+      // Analyze traffic alerts
+      final alerts = _nearbyPlacesService.analyzeTrafficAlerts(
+        center: center,
+        places: places,
+      );
+
+      if (mounted) {
+        setState(() {
+          _nearbyPlaces = places;
+          _trafficAlerts = alerts;
+          _isLoadingPlaces = false;
+        });
+      }
+    } catch (e) {
+      print('Error detecting nearby places: $e');
+      if (mounted) {
+        setState(() {
+          _isLoadingPlaces = false;
+        });
+      }
+    }
+  }
+
   Future<void> _fetchRoute({bool showAlternatives = false}) async {
     // Use origin location if set, otherwise use current location
     final origin = _snappedOriginLocation ?? 
@@ -566,11 +636,47 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     });
 
     try {
-      final routes = await _directionsService.getRoutes(
-        origin: origin,
-        destination: destination,
-        alternatives: showAlternatives,
-      );
+      List<RouteDetails> routes;
+      
+      // Use optimized routes if enabled
+      if (_useOptimizedRoutes) {
+        final optimizedRoutes = await _routeOptimizerService.findOptimalRoutes(
+          origin: origin,
+          destination: destination,
+        );
+        
+        // Extract RouteDetails from OptimizedRoute
+        routes = optimizedRoutes.map((optRoute) => optRoute.route).toList();
+        
+        // Update traffic alerts from optimized routes
+        if (optimizedRoutes.isNotEmpty) {
+          final allAlerts = <TrafficAlert>[];
+          for (final optRoute in optimizedRoutes) {
+            allAlerts.addAll(optRoute.alerts);
+          }
+          
+          // Remove duplicates
+          final uniqueAlerts = <String, TrafficAlert>{};
+          for (final alert in allAlerts) {
+            final key = '${alert.location.latitude}_${alert.location.longitude}';
+            if (!uniqueAlerts.containsKey(key)) {
+              uniqueAlerts[key] = alert;
+            }
+          }
+          
+          setState(() {
+            _trafficAlerts = uniqueAlerts.values.toList()
+              ..sort((a, b) => b.severity.compareTo(a.severity));
+          });
+        }
+      } else {
+        // Use regular routes
+        routes = await _directionsService.getRoutes(
+          origin: origin,
+          destination: destination,
+          alternatives: showAlternatives,
+        );
+      }
 
       setState(() {
         _polylines.clear();
@@ -597,7 +703,10 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
       
       // Show success message when route is found
       if (routes.isNotEmpty) {
-        _showSnackBar('Route found! Path displayed on map.');
+        final message = _useOptimizedRoutes 
+            ? 'Optimal route found! Avoiding high-traffic areas.'
+            : 'Route found! Path displayed on map.';
+        _showSnackBar(message);
       }
     } catch (e) {
       setState(() {
@@ -785,12 +894,14 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
       });
       await _addOriginLocationMarker(position);
       _fetchTrafficDataForLocation(position, isOrigin: true);
+      _detectNearbyPlacesAndAlerts(position);
     } else if (_dropLocation == null) {
       setState(() {
         _dropLocation = position;
       });
       await _addDropLocationMarker(position);
       _fetchTrafficDataForLocation(position, isOrigin: false);
+      _detectNearbyPlacesAndAlerts(position);
       
       // Automatically fetch and display the route path
       await _fetchRoute(showAlternatives: true);
@@ -813,6 +924,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
       });
       await _addDropLocationMarker(position);
       _fetchTrafficDataForLocation(position, isOrigin: false);
+      _detectNearbyPlacesAndAlerts(position);
       
       // Automatically fetch and display the route path
       await _fetchRoute(showAlternatives: true);
@@ -984,6 +1096,9 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
         // Fetch traffic heatmap for origin
         _fetchTrafficDataForLocation(location, isOrigin: true);
         
+        // Detect nearby places and generate alerts for origin
+        _detectNearbyPlacesAndAlerts(location);
+        
         // Fetch route if destination is also set
         if (_dropLocation != null) {
           await _fetchRoute(showAlternatives: true);
@@ -1017,6 +1132,9 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
         
         // Fetch traffic heatmap for destination
         _fetchTrafficDataForLocation(location, isOrigin: false);
+        
+        // Detect nearby places and generate alerts for destination
+        _detectNearbyPlacesAndAlerts(location);
         
         // Fetch route if origin is also set
         if (_originLocation != null || _currentLocation != null) {
@@ -1120,6 +1238,11 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
       _heatmapCenter = location;
       // Fetch initial traffic data
       _updateTrafficHeatmap(location);
+      // Detect nearby places and generate alerts
+      _detectNearbyPlacesAndAlerts(location);
+    } else {
+      // Periodically update nearby places detection (every 30 seconds)
+      // This is handled by a timer in initState
     }
 
     _circles
@@ -2494,6 +2617,130 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                         ),
                       ),
                     ],
+                  ),
+                ),
+              ),
+            ),
+
+          // Traffic Alerts Panel
+          if (!_isNavigating && _trafficAlerts.isNotEmpty)
+            Positioned(
+              top: 0,
+              left: 0,
+              right: 0,
+              child: SafeArea(
+                child: Padding(
+                  padding: const EdgeInsets.only(top: 100, left: 16, right: 16),
+                  child: Container(
+                    constraints: const BoxConstraints(maxHeight: 200),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(12),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.15),
+                          blurRadius: 10,
+                          offset: const Offset(0, 2),
+                        ),
+                      ],
+                    ),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: Colors.orange[100],
+                            borderRadius: const BorderRadius.only(
+                              topLeft: Radius.circular(12),
+                              topRight: Radius.circular(12),
+                            ),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(Icons.warning_amber_rounded, color: Colors.orange[800], size: 20),
+                              const SizedBox(width: 8),
+                              const Text(
+                                'Traffic Alerts',
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                              const Spacer(),
+                              Text(
+                                '${_trafficAlerts.length}',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.orange[800],
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        Flexible(
+                          child: ListView.builder(
+                            shrinkWrap: true,
+                            itemCount: _trafficAlerts.length > 3 ? 3 : _trafficAlerts.length,
+                            itemBuilder: (context, index) {
+                              final alert = _trafficAlerts[index];
+                              return Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                decoration: BoxDecoration(
+                                  border: Border(
+                                    bottom: BorderSide(
+                                      color: Colors.grey[200]!,
+                                      width: index < (_trafficAlerts.length > 3 ? 2 : _trafficAlerts.length - 1) ? 1 : 0,
+                                    ),
+                                  ),
+                                ),
+                                child: Row(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Container(
+                                      width: 8,
+                                      height: 8,
+                                      margin: const EdgeInsets.only(top: 6, right: 8),
+                                      decoration: BoxDecoration(
+                                        color: alert.severity >= 0.8
+                                            ? Colors.red
+                                            : alert.severity >= 0.5
+                                                ? Colors.orange
+                                                : Colors.yellow,
+                                        shape: BoxShape.circle,
+                                      ),
+                                    ),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            alert.message,
+                                            style: const TextStyle(
+                                              fontSize: 12,
+                                              fontWeight: FontWeight.w500,
+                                            ),
+                                          ),
+                                          const SizedBox(height: 2),
+                                          Text(
+                                            '${alert.severityLevel} traffic • ${alert.contributingPlaces.length} place${alert.contributingPlaces.length > 1 ? 's' : ''}',
+                                            style: TextStyle(
+                                              fontSize: 10,
+                                              color: Colors.grey[600],
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              );
+                            },
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ),
