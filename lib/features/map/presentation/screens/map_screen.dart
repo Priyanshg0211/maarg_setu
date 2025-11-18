@@ -18,6 +18,7 @@ import '../../services/nearby_places_service.dart';
 import '../../services/route_optimizer_service.dart';
 import '../../services/gemini_ai_service.dart';
 import '../../../../features/auth/services/auth_service.dart';
+import 'ar_navigation_screen.dart';
 
 class MapScreen extends StatefulWidget {
   const MapScreen({super.key});
@@ -2253,6 +2254,25 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     
     // Cancel periodic route updates when navigation stops
     _routeUpdateTimer?.cancel();
+  }
+  
+  void _openARNavigation() {
+    if (_dropLocation == null || _currentLocation == null) {
+      _showSnackBar('Please set a destination first');
+      return;
+    }
+    
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => ARNavigationScreen(
+          destination: _dropLocation,
+          routeDetails: _routeDetails,
+          currentStepIndex: _currentStepIndex,
+          currentLocation: _currentLocation,
+        ),
+      ),
+    );
   }
 
   void _showSnackBar(String message) {
@@ -4882,6 +4902,11 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                             ),
                           ),
                           IconButton(
+                            icon: const Icon(Icons.camera_alt),
+                            tooltip: 'AR Navigation',
+                            onPressed: _openARNavigation,
+                          ),
+                          IconButton(
                             icon: const Icon(Icons.close),
                             onPressed: _stopNavigation,
                           ),
@@ -5379,6 +5404,16 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                     backgroundColor: Colors.white,
                     child: const Icon(Icons.fit_screen, color: Colors.green),
                   ),
+                if (_isNavigating && _dropLocation != null) ...[
+                  const SizedBox(height: 8),
+                  FloatingActionButton(
+                    mini: true,
+                    heroTag: 'arNavigation',
+                    onPressed: _openARNavigation,
+                    backgroundColor: Colors.purple,
+                    child: const Icon(Icons.camera_alt, color: Colors.white),
+                  ),
+                ],
               ],
             ),
           ),
