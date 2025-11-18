@@ -78,7 +78,7 @@ class GeminiAIService {
     
     try {
       // Build context for AI
-      final context = _buildHyperlocalContext(
+      _buildHyperlocalContext(
         location: location,
         nearbyPlaces: nearbyPlaces,
         currentAlerts: currentAlerts,
