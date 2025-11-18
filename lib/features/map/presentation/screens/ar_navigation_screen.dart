@@ -29,7 +29,7 @@ class ARNavigationScreen extends StatefulWidget {
   State<ARNavigationScreen> createState() => _ARNavigationScreenState();
 }
 
-class _ARNavigationScreenState extends State<ARNavigationScreen> {
+class _ARNavigationScreenState extends State<ARNavigationScreen> with WidgetsBindingObserver {
   CameraController? _cameraController;
   List<CameraDescription>? _cameras;
   bool _isCameraInitialized = false;
@@ -46,6 +46,7 @@ class _ARNavigationScreenState extends State<ARNavigationScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _currentLocation = widget.currentLocation;
     _initializeCamera();
     _arService.startListening();
@@ -54,16 +55,46 @@ class _ARNavigationScreenState extends State<ARNavigationScreen> {
     _startUpdateTimer();
   }
   
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    // Re-check camera permission when app comes back to foreground
+    if (state == AppLifecycleState.resumed && !_isCameraInitialized) {
+      _checkAndInitializeCamera();
+    }
+  }
+  
   void _onBearingChanged() {
     setState(() {
       _deviceBearing = _arService.deviceBearing;
     });
   }
   
+  Future<void> _checkAndInitializeCamera() async {
+    await _initializeCamera();
+  }
+  
   Future<void> _initializeCamera() async {
     try {
-      // Request camera permission
-      final status = await permission_handler.Permission.camera.request();
+      // Check current permission status first
+      final currentStatus = await permission_handler.Permission.camera.status;
+      
+      // If permission is permanently denied, show settings option
+      if (currentStatus.isPermanentlyDenied) {
+        setState(() {
+          _hasPermission = false;
+        });
+        return;
+      }
+      
+      // Request camera permission if not granted
+      permission_handler.PermissionStatus status;
+      if (currentStatus.isDenied) {
+        status = await permission_handler.Permission.camera.request();
+      } else {
+        status = currentStatus;
+      }
+      
       if (status != permission_handler.PermissionStatus.granted) {
         setState(() {
           _hasPermission = false;
@@ -75,6 +106,14 @@ class _ARNavigationScreenState extends State<ARNavigationScreen> {
       _cameras = await availableCameras();
       
       if (_cameras == null || _cameras!.isEmpty) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('No cameras available on this device.'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
         return;
       }
       
@@ -92,11 +131,25 @@ class _ARNavigationScreenState extends State<ARNavigationScreen> {
       
       await _cameraController!.initialize();
       
-      setState(() {
-        _isCameraInitialized = true;
-      });
+      if (mounted) {
+        setState(() {
+          _isCameraInitialized = true;
+        });
+      }
     } catch (e) {
       debugPrint('Error initializing camera: $e');
+      if (mounted) {
+        setState(() {
+          _hasPermission = false;
+          _isCameraInitialized = false;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Camera error: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     }
   }
   
@@ -125,6 +178,7 @@ class _ARNavigationScreenState extends State<ARNavigationScreen> {
   
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _updateTimer?.cancel();
     _locationSubscription?.cancel();
     _cameraController?.dispose();
@@ -249,7 +303,41 @@ class _ARNavigationScreenState extends State<ARNavigationScreen> {
           const SizedBox(height: 24),
           ElevatedButton(
             onPressed: () async {
-              await permission_handler.openAppSettings();
+              try {
+                final opened = await permission_handler.openAppSettings();
+                if (!opened) {
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text(
+                          'Unable to open settings. Please open manually.',
+                          style: GoogleFonts.montserrat(),
+                        ),
+                        backgroundColor: Colors.red,
+                      ),
+                    );
+                  }
+                } else {
+                  // Wait a bit and then re-check permissions when user returns
+                  Future.delayed(const Duration(seconds: 1), () {
+                    if (mounted) {
+                      _checkAndInitializeCamera();
+                    }
+                  });
+                }
+              } catch (e) {
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(
+                        'Error opening settings: $e',
+                        style: GoogleFonts.montserrat(),
+                      ),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
+                }
+              }
             },
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.white,
