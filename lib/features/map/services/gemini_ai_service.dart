@@ -182,7 +182,7 @@ Format as JSON array of insights.
     }
   }
 
-  /// Call Gemini API
+  /// Call Gemini API with fast fallback on errors
   Future<String?> _callGeminiAPI(String prompt) async {
     try {
       // Check if API key is set
@@ -192,7 +192,7 @@ Format as JSON array of insights.
         return null;
       }
 
-      final url = Uri.parse('$_geminiApiUrl');
+      final url = Uri.parse('$_geminiApiUrl?key=$apiKey');
       
       final requestBody = json.encode({
         'contents': [
@@ -203,47 +203,68 @@ Format as JSON array of insights.
           }
         ],
         'generationConfig': {
-          'temperature': 0.3, // Lower temperature for more focused, faster responses
-          'topK': 20, // Reduced for faster processing
-          'topP': 0.8, // Reduced for faster processing
-          'maxOutputTokens': 512, // Reduced for faster responses
+          'temperature': 0.2, // Lower temperature for faster, more focused responses
+          'topK': 10, // Reduced for faster processing
+          'topP': 0.7, // Reduced for faster processing
+          'maxOutputTokens': 256, // Reduced for faster responses
         }
       });
 
-      // Add timeout for faster responses
+      // Reduced timeout for faster fallback - return immediately on error
       final response = await http.post(
         url,
         headers: {
           'Content-Type': 'application/json',
-          'x-goog-api-key': apiKey,
         },
         body: requestBody,
       ).timeout(
-        const Duration(seconds: 8), // 8 second timeout for API calls
+        const Duration(seconds: 3), // Reduced to 3 seconds for fast fallback
         onTimeout: () {
+          print('Gemini API timeout - using fallback');
           throw TimeoutException('Gemini API request timed out');
         },
       );
 
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body) as Map<String, dynamic>;
-        final candidates = data['candidates'] as List<dynamic>?;
-        
-        if (candidates != null && candidates.isNotEmpty) {
-          final candidate = candidates[0] as Map<String, dynamic>;
-          final content = candidate['content'] as Map<String, dynamic>;
-          final parts = content['parts'] as List<dynamic>;
-          
-          if (parts.isNotEmpty) {
-            final part = parts[0] as Map<String, dynamic>;
-            return part['text'] as String?;
-          }
-        }
-      } else {
-        print('Gemini API error: ${response.statusCode} - ${response.body}');
+      // Handle 503 and other errors immediately
+      if (response.statusCode == 503) {
+        print('Gemini API overloaded (503) - using fallback immediately');
+        return null; // Return null immediately to use fallback
       }
+      
+      if (response.statusCode != 200) {
+        print('Gemini API error: ${response.statusCode} - using fallback');
+        return null; // Return null immediately on any error
+      }
+
+      final data = json.decode(response.body) as Map<String, dynamic>;
+      
+      // Check for error in response body
+      if (data.containsKey('error')) {
+        final error = data['error'] as Map<String, dynamic>;
+        final code = error['code'] as int?;
+        final message = error['message'] as String?;
+        print('Gemini API error in response: $code - $message - using fallback');
+        return null; // Return null immediately on error
+      }
+      
+      final candidates = data['candidates'] as List<dynamic>?;
+      
+      if (candidates != null && candidates.isNotEmpty) {
+        final candidate = candidates[0] as Map<String, dynamic>;
+        final content = candidate['content'] as Map<String, dynamic>;
+        final parts = content['parts'] as List<dynamic>;
+        
+        if (parts.isNotEmpty) {
+          final part = parts[0] as Map<String, dynamic>;
+          return part['text'] as String?;
+        }
+      }
+    } on TimeoutException {
+      // Already handled in timeout callback
+      return null;
     } catch (e) {
-      print('Error calling Gemini API: $e');
+      print('Error calling Gemini API: $e - using fallback');
+      return null; // Return null immediately on any exception
     }
     
     return null;

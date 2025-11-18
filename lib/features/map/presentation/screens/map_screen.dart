@@ -655,7 +655,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     }
   }
 
-  /// Get AI-powered traffic prediction (optimized for speed)
+  /// Get AI-powered traffic prediction (completely non-blocking, instant fallback)
   Future<void> _getAIPrediction(
     LatLng location,
     List<NearbyPlace> places,
@@ -663,23 +663,23 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
   ) async {
     if (_isLoadingAIPrediction) return;
     
-    setState(() {
-      _isLoadingAIPrediction = true;
-    });
+    _isLoadingAIPrediction = true;
 
+    // Try to get AI prediction in background (non-blocking)
+    // Fallback is handled by the service itself
     try {
       // Limit data for faster processing
-      final limitedPlaces = places.take(10).toList();
-      final limitedAlerts = alerts.take(5).toList();
+      final limitedPlaces = places.take(5).toList(); // Reduced to 5
+      final limitedAlerts = alerts.take(3).toList(); // Reduced to 3
       
-      // Get prediction with timeout for faster fallback
+      // Get prediction with very short timeout for instant fallback
       final prediction = await _geminiAIService.predictTraffic(
         location: location,
         nearbyPlaces: limitedPlaces,
         currentAlerts: limitedAlerts,
         currentTime: DateTime.now(),
       ).timeout(
-        const Duration(seconds: 6), // 6 second timeout for fast fallback
+        const Duration(seconds: 2), // Reduced to 2 seconds for instant fallback
       );
 
       if (mounted) {
@@ -687,49 +687,43 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
           _aiPrediction = prediction;
           _isLoadingAIPrediction = false;
         });
-        // Show bottom sheet with all insights (AI, traffic, businesses) - debounced
-        _showBottomSheetIfNeeded();
       }
     } catch (e) {
-      print('Error getting AI prediction: $e');
+      print('AI prediction error (using fallback): $e');
       if (mounted) {
         setState(() {
           _isLoadingAIPrediction = false;
-          // Prediction will use fallback from service
+          // Fallback prediction is already set by service
         });
       }
     }
   }
 
-  /// Get business insights for hyperlocal users (optimized for speed)
+  /// Get business insights for hyperlocal users (completely non-blocking, instant fallback)
   Future<void> _getBusinessInsights(List<NearbyPlace> places) async {
     try {
       // Limit places for faster processing
-      final limitedPlaces = places.take(10).toList();
+      final limitedPlaces = places.take(5).toList(); // Reduced to 5
       
       final insights = await _geminiAIService.getBusinessInsights(
         places: limitedPlaces,
         currentTime: DateTime.now(),
       ).timeout(
-        const Duration(seconds: 5), // 5 second timeout
+        const Duration(seconds: 2), // Reduced to 2 seconds for instant fallback
       );
 
       if (mounted) {
         setState(() {
           _businessInsights = insights;
         });
-        // Show bottom sheet if we have business insights or traffic alerts (debounced)
-        if (insights.isNotEmpty || _trafficAlerts.isNotEmpty) {
-          _showBottomSheetIfNeeded();
-        }
       }
     } catch (e) {
-      print('Error getting business insights: $e');
-      // Continue without business insights - not critical
+      print('Business insights error (using fallback): $e');
+      // Fallback is handled by service - continue without blocking
     }
   }
 
-  /// Get AI-powered route recommendation (optimized for speed)
+  /// Get AI-powered route recommendation (completely non-blocking, instant fallback)
   Future<void> _getAIRouteRecommendation(
     LatLng origin,
     LatLng destination,
@@ -737,32 +731,45 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     // Skip if already loading to avoid duplicate calls
     if (_isLoadingAIPrediction) return;
     
+    // Set fallback immediately - don't wait for AI
+    if (mounted && _aiRouteRecommendation == null) {
+      setState(() {
+        _aiRouteRecommendation = AIRouteRecommendation(
+          recommendation: 'Use optimized route avoiding high-traffic areas',
+          reasoning: 'Route optimized for current conditions',
+          timeSavings: _trafficAlerts.length * 2.0,
+          benefits: ['Avoids traffic congestion', 'Shorter travel time'],
+          hyperlocalInsights: {'alertsAvoided': _trafficAlerts.length},
+        );
+      });
+    }
+    
+    // Try to get AI recommendation in background (non-blocking)
     try {
       // Use cached nearby places if available, limit for faster processing
       final originPlaces = _nearbyPlaces.where((p) {
         final dist = _calculateDistance(origin, p.location);
         return dist <= MapConstants.radarRadius;
-      }).take(10).toList(); // Limit to 10 for faster processing
+      }).take(5).toList(); // Reduced to 5 for faster processing
       
       final destPlaces = _nearbyPlaces.where((p) {
         final dist = _calculateDistance(destination, p.location);
         return dist <= MapConstants.radarRadius;
-      }).take(10).toList(); // Limit to 10 for faster processing
+      }).take(5).toList(); // Reduced to 5 for faster processing
 
-      // Get AI recommendation with timeout for faster fallback
+      // Get AI recommendation with very short timeout for instant fallback
       final recommendation = await _geminiAIService.recommendRoute(
         origin: origin,
         destination: destination,
         originPlaces: originPlaces,
         destinationPlaces: destPlaces,
-        alerts: _trafficAlerts.take(5).toList(), // Limit alerts for faster processing
+        alerts: _trafficAlerts.take(3).toList(), // Reduced to 3 for faster processing
         currentTime: DateTime.now(),
       ).timeout(
-        const Duration(seconds: 5), // 5 second timeout for fast fallback
+        const Duration(seconds: 2), // Reduced to 2 seconds for instant fallback
         onTimeout: () {
-          print('AI recommendation timeout, using fallback');
-          // Return a basic fallback recommendation
-          return AIRouteRecommendation(
+          // Fallback already set above, just return it
+          return _aiRouteRecommendation ?? AIRouteRecommendation(
             recommendation: 'Use optimized route avoiding high-traffic areas',
             reasoning: 'Route optimized for current conditions',
             timeSavings: _trafficAlerts.length * 2.0,
@@ -772,31 +779,15 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
         },
       );
 
-      if (mounted) {
+      // Update with AI recommendation if available (non-blocking)
+      if (mounted && recommendation != null) {
         setState(() {
           _aiRouteRecommendation = recommendation;
         });
-        
-        // Update UI with AI recommendation if route is already displayed
-        if (_routeDetails != null && _aiRouteRecommendation != null) {
-          // Select optimal route based on AI recommendation if available
-          _selectOptimalRouteBasedOnAI();
-        }
       }
     } catch (e) {
-      print('Error getting AI route recommendation: $e');
-      // Use fallback recommendation on error
-      if (mounted) {
-        setState(() {
-          _aiRouteRecommendation = AIRouteRecommendation(
-            recommendation: 'Use optimized route avoiding high-traffic areas',
-            reasoning: 'Route optimized for current conditions',
-            timeSavings: _trafficAlerts.length * 2.0,
-            benefits: ['Avoids traffic congestion', 'Shorter travel time'],
-            hyperlocalInsights: {'alertsAvoided': _trafficAlerts.length},
-          );
-        });
-      }
+      // Fallback already set, just log error
+      print('AI recommendation error (using fallback): $e');
     }
   }
   
@@ -838,10 +829,10 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
       // Extract RouteDetails from OptimizedRoute
       routes = optimizedRoutes.map((optRoute) => optRoute.route).toList();
       
-      // Get AI-powered route recommendation (non-blocking, runs in parallel)
-      // This provides optimal navigation insights
+      // Get AI-powered route recommendation (completely non-blocking, runs in background)
+      // Don't wait for it - routes show immediately, AI updates later if available
       _getAIRouteRecommendation(origin, destination).catchError((e) {
-        print('AI recommendation error: $e');
+        // Silently handle errors - fallback is already set
       });
       
       // Update traffic alerts from optimized routes
@@ -894,15 +885,13 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
         _isLoadingRoute = false;
       });
       
-      // Show route bottom sheet only once when route is found
+      // Show route bottom sheet immediately when route is found (don't wait for AI)
       if (routes.isNotEmpty && !_hasShownRouteBottomSheet) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
-          // Wait a bit for AI data to load, then show bottom sheet
-          Future.delayed(const Duration(milliseconds: 1500), () {
-            if (mounted && !_hasShownRouteBottomSheet && _routeDetails != null) {
-              _showRouteBottomSheet();
-            }
-          });
+          // Show immediately - AI data will update if available later
+          if (mounted && !_hasShownRouteBottomSheet && _routeDetails != null) {
+            _showRouteBottomSheet();
+          }
         });
       }
     } catch (e) {
@@ -2154,31 +2143,32 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     }
   }
 
-  /// Start navigation mode with proper camera positioning and route updates
+  /// Start navigation mode with proper camera positioning and route updates (optimized for speed)
   void _startNavigation() {
     if (_routeDetails == null) return;
     
-    // Close bottom sheet if open
+    // Close bottom sheet if open (immediate)
     if (_isBottomSheetOpen) {
       Navigator.pop(context);
       _isBottomSheetOpen = false;
     }
     
+    // Update state immediately
     setState(() {
       _isNavigating = true;
       _currentStepIndex = 0;
     });
     
-    // Move camera to navigation view immediately with proper zoom and tilt
+    // Move camera to navigation view immediately (non-blocking)
     if (_currentLocation != null) {
-      final controller = _controller.future;
-      controller.then((mapController) {
-        final lat = _currentLocation!.latitude;
-        final lng = _currentLocation!.longitude;
-        if (lat != null && lng != null) {
-          final position = _snappedCurrentLocation ?? LatLng(lat, lng);
-          final heading = _currentLocation!.heading?.toDouble() ?? 0;
-          
+      final lat = _currentLocation!.latitude;
+      final lng = _currentLocation!.longitude;
+      if (lat != null && lng != null) {
+        final position = _snappedCurrentLocation ?? LatLng(lat, lng);
+        final heading = _currentLocation!.heading?.toDouble() ?? 0;
+        
+        // Use future without waiting - navigation starts immediately
+        _controller.future.then((mapController) {
           mapController.animateCamera(
             CameraUpdate.newCameraPosition(
               CameraPosition(
@@ -2191,16 +2181,11 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
           ).catchError((e) {
             print('Navigation camera error: $e');
           });
-        }
-      });
+        });
+      }
     }
     
-    // Start periodic route updates for live traffic data (async, non-blocking)
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _updateRoutePeriodically();
-    });
-    
-    // Update current step immediately
+    // Update current step immediately (non-blocking)
     if (_currentLocation != null) {
       final lat = _currentLocation!.latitude;
       final lng = _currentLocation!.longitude;
@@ -2208,6 +2193,11 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
         _updateCurrentStep(LatLng(lat, lng));
       }
     }
+    
+    // Start periodic route updates for live traffic data (async, non-blocking)
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _updateRoutePeriodically();
+    });
   }
 
   void _stopNavigation() {
