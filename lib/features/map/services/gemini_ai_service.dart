@@ -60,7 +60,7 @@ class HyperlocalBusinessInsight {
 }
 
 class GeminiAIService {
-  static const String _geminiApiUrl = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent';
+  static const String _geminiApiUrl = 'https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent';
   
   String get _geminiApiKey => MapConstants.geminiApiKey;
 

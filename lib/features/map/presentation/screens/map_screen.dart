@@ -2916,119 +2916,119 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                   child: Container(
                     decoration: BoxDecoration(
                       color: Colors.white,
-                      borderRadius: BorderRadius.circular(12),
+                      borderRadius: BorderRadius.circular(16),
                       boxShadow: [
                         BoxShadow(
-                          color: Colors.black.withOpacity(0.15),
-                          blurRadius: 10,
-                          offset: const Offset(0, 2),
+                          color: Colors.black.withOpacity(0.08),
+                          blurRadius: 20,
+                          offset: const Offset(0, 4),
                         ),
                       ],
                     ),
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        // AI Header
-                        Container(
-                          padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(
-                            gradient: LinearGradient(
-                              colors: [Colors.purple[400]!, Colors.blue[400]!],
-                              begin: Alignment.topLeft,
-                              end: Alignment.bottomRight,
-                            ),
-                            borderRadius: const BorderRadius.only(
-                              topLeft: Radius.circular(12),
-                              topRight: Radius.circular(12),
-                            ),
-                          ),
+                        // Modern Minimal Header
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(20, 18, 20, 16),
                           child: Row(
                             children: [
-                              Icon(Icons.auto_awesome, color: Colors.white, size: 20),
-                              const SizedBox(width: 8),
-                              const Text(
-                                'AI Hyperlocal Insights',
-                                style: TextStyle(
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.white,
+                              Container(
+                                padding: const EdgeInsets.all(8),
+                                decoration: BoxDecoration(
+                                  color: Colors.blue[50],
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                child: Icon(
+                                  Icons.insights,
+                                  color: Colors.blue[700],
+                                  size: 20,
                                 ),
                               ),
-                              const Spacer(),
-                              Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                decoration: BoxDecoration(
-                                  color: Colors.white.withOpacity(0.3),
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                                child: Text(
-                                  '${(_aiPrediction!.confidence * 100).toInt()}%',
-                                  style: const TextStyle(
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.bold,
-                                    color: Colors.white,
-                                  ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'Traffic Insights',
+                                      style: TextStyle(
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.w600,
+                                        color: Colors.grey[900],
+                                        letterSpacing: -0.3,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      '${(_aiPrediction!.confidence * 100).toInt()}% confidence',
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        color: Colors.grey[600],
+                                        fontWeight: FontWeight.w500,
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ),
                             ],
                           ),
                         ),
-                        // Prediction
+                        // Divider
+                        Divider(height: 1, color: Colors.grey[200]),
+                        // Content
                         Padding(
-                          padding: const EdgeInsets.all(12),
+                          padding: const EdgeInsets.all(20),
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Row(
-                                children: [
-                                  Icon(Icons.trending_up, color: Colors.blue[700], size: 18),
-                                  const SizedBox(width: 8),
-                                  Expanded(
-                                    child: Text(
-                                      _aiPrediction!.prediction,
-                                      style: const TextStyle(
-                                        fontSize: 13,
-                                        fontWeight: FontWeight.w600,
-                                      ),
-                                    ),
-                                  ),
-                                ],
+                              // Main Prediction
+                              Text(
+                                _aiPrediction!.prediction,
+                                style: TextStyle(
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w600,
+                                  color: Colors.grey[900],
+                                  height: 1.4,
+                                ),
                               ),
+                              // Reasoning (if available)
                               if (_aiPrediction!.reasoning.isNotEmpty) ...[
-                                const SizedBox(height: 8),
+                                const SizedBox(height: 12),
                                 Text(
                                   _aiPrediction!.reasoning,
                                   style: TextStyle(
-                                    fontSize: 11,
+                                    fontSize: 13,
                                     color: Colors.grey[700],
+                                    height: 1.5,
                                   ),
                                 ),
                               ],
-                              // Recommendations
+                              // Recommendations (simplified)
                               if (_aiPrediction!.recommendations.isNotEmpty) ...[
-                                const SizedBox(height: 12),
-                                const Text(
-                                  'Recommendations:',
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                                const SizedBox(height: 4),
+                                const SizedBox(height: 20),
                                 ..._aiPrediction!.recommendations.take(3).map((rec) => Padding(
-                                  padding: const EdgeInsets.only(bottom: 4),
+                                  padding: const EdgeInsets.only(bottom: 10),
                                   child: Row(
                                     crossAxisAlignment: CrossAxisAlignment.start,
                                     children: [
-                                      Icon(Icons.check_circle_outline, 
-                                        color: Colors.green[700], size: 16),
-                                      const SizedBox(width: 6),
+                                      Container(
+                                        margin: const EdgeInsets.only(top: 2),
+                                        width: 6,
+                                        height: 6,
+                                        decoration: BoxDecoration(
+                                          color: Colors.blue[600],
+                                          shape: BoxShape.circle,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 12),
                                       Expanded(
                                         child: Text(
                                           rec,
                                           style: TextStyle(
-                                            fontSize: 11,
-                                            color: Colors.grey[700],
+                                            fontSize: 13,
+                                            color: Colors.grey[800],
+                                            height: 1.5,
                                           ),
                                         ),
                                       ),
@@ -3036,48 +3036,41 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                                   ),
                                 )),
                               ],
-                              // Hyperlocal Insights
+                              // Key Insights (minimal design)
                               if (_aiPrediction!.insights.isNotEmpty) ...[
-                                const SizedBox(height: 12),
+                                const SizedBox(height: 20),
                                 Container(
-                                  padding: const EdgeInsets.all(8),
+                                  padding: const EdgeInsets.all(16),
                                   decoration: BoxDecoration(
-                                    color: Colors.blue[50],
-                                    borderRadius: BorderRadius.circular(8),
+                                    color: Colors.grey[50],
+                                    borderRadius: BorderRadius.circular(12),
+                                    border: Border.all(
+                                      color: Colors.grey[200]!,
+                                      width: 1,
+                                    ),
                                   ),
                                   child: Column(
                                     crossAxisAlignment: CrossAxisAlignment.start,
                                     children: [
-                                      Row(
-                                        children: [
-                                          Icon(Icons.local_activity, 
-                                            color: Colors.blue[700], size: 16),
-                                          const SizedBox(width: 6),
-                                          const Text(
-                                            'Hyperlocal Tips:',
-                                            style: TextStyle(
-                                              fontSize: 11,
-                                              fontWeight: FontWeight.bold,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                      const SizedBox(height: 4),
                                       if (_aiPrediction!.insights.containsKey('peakHours'))
-                                        _buildInsightRow(
+                                        _buildModernInsightRow(
                                           'Peak Hours',
                                           _aiPrediction!.insights['peakHours'].toString(),
                                         ),
-                                      if (_aiPrediction!.insights.containsKey('bestTimeToVisit'))
-                                        _buildInsightRow(
+                                      if (_aiPrediction!.insights.containsKey('bestTimeToVisit')) ...[
+                                        const SizedBox(height: 12),
+                                        _buildModernInsightRow(
                                           'Best Time',
                                           _aiPrediction!.insights['bestTimeToVisit'].toString(),
                                         ),
-                                      if (_aiPrediction!.insights.containsKey('marketCount'))
-                                        _buildInsightRow(
+                                      ],
+                                      if (_aiPrediction!.insights.containsKey('marketCount')) ...[
+                                        const SizedBox(height: 12),
+                                        _buildModernInsightRow(
                                           'Markets Nearby',
                                           _aiPrediction!.insights['marketCount'].toString(),
                                         ),
+                                      ],
                                     ],
                                   ),
                                 ),
@@ -3646,6 +3639,38 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
           ),
         ],
       ),
+    );
+  }
+
+  /// Build modern minimal insight row widget
+  Widget _buildModernInsightRow(String label, String value) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Expanded(
+          flex: 2,
+          child: Text(
+            label,
+            style: TextStyle(
+              fontSize: 12,
+              color: Colors.grey[600],
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ),
+        Expanded(
+          flex: 3,
+          child: Text(
+            value,
+            style: TextStyle(
+              fontSize: 12,
+              color: Colors.grey[900],
+              fontWeight: FontWeight.w600,
+            ),
+            textAlign: TextAlign.right,
+          ),
+        ),
+      ],
     );
   }
 
