@@ -2132,9 +2132,6 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
       backgroundColor: Colors.transparent,
       enableDrag: true,
       isDismissible: true,
-      onDismissed: () {
-        _isBottomSheetOpen = false;
-      },
       useSafeArea: true,
       builder: (context) => DraggableScrollableSheet(
         initialChildSize: 0.6,
@@ -2628,7 +2625,13 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
           ),
         ),
       ),
-    );
+    ).then((_) {
+      // Handle bottom sheet dismissal
+      _isBottomSheetOpen = false;
+    }).catchError((_) {
+      // Handle any errors
+      _isBottomSheetOpen = false;
+    });
   }
 
   void _showRemoveDestinationDialog() {
