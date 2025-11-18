@@ -7,6 +7,7 @@ import 'package:flutter/rendering.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:location/location.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../../../core/constants/map_constants.dart';
 import '../../services/location_service.dart';
@@ -2263,6 +2264,30 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
         duration: const Duration(seconds: 3),
       ),
     );
+  }
+  
+  /// Open Rapido app
+  Future<void> _openRapidoApp() async {
+    try {
+      // Try to open Rapido app using deep link
+      final rapidoUrl = Uri.parse('rapido://');
+      final rapidoPlayStoreUrl = Uri.parse('https://play.google.com/store/apps/details?id=com.rapido.passenger');
+      
+      // Try to launch the app
+      if (await canLaunchUrl(rapidoUrl)) {
+        await launchUrl(rapidoUrl, mode: LaunchMode.externalApplication);
+      } else {
+        // If app is not installed, open Play Store
+        if (await canLaunchUrl(rapidoPlayStoreUrl)) {
+          await launchUrl(rapidoPlayStoreUrl, mode: LaunchMode.externalApplication);
+        } else {
+          _showSnackBar('Rapido app not found. Please install it from Play Store.');
+        }
+      }
+    } catch (e) {
+      _showSnackBar('Unable to open Rapido app. Please install it from Play Store.');
+      print('Error opening Rapido app: $e');
+    }
   }
 
   /// Show transportation mode selector dialog
@@ -5170,46 +5195,77 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                                     width: 1,
                                   ),
                                 ),
-                                child: Row(
+                                child: Column(
                                   children: [
-                                    Container(
-                                      padding: const EdgeInsets.all(8),
-                                      decoration: BoxDecoration(
-                                        color: _getTransportModeColor(_routeTransportRecommendations[_selectedRouteIndex]!),
-                                        borderRadius: BorderRadius.circular(8),
-                                      ),
-                                      child: Icon(
-                                        _getTransportModeIcon(_routeTransportRecommendations[_selectedRouteIndex]!),
-                                        color: Colors.white,
-                                        size: 20,
-                                      ),
+                                    Row(
+                                      children: [
+                                        Container(
+                                          padding: const EdgeInsets.all(8),
+                                          decoration: BoxDecoration(
+                                            color: _getTransportModeColor(_routeTransportRecommendations[_selectedRouteIndex]!),
+                                            borderRadius: BorderRadius.circular(8),
+                                          ),
+                                          child: Icon(
+                                            _getTransportModeIcon(_routeTransportRecommendations[_selectedRouteIndex]!),
+                                            color: Colors.white,
+                                            size: 20,
+                                          ),
+                                        ),
+                                        const SizedBox(width: 12),
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment: CrossAxisAlignment.start,
+                                            children: [
+                                              Text(
+                                                '${_getTransportModeLabel(_routeTransportRecommendations[_selectedRouteIndex]!)} would be good',
+                                                style: TextStyle(
+                                                  fontSize: 14,
+                                                  fontWeight: FontWeight.bold,
+                                                  color: Colors.grey[900],
+                                                ),
+                                              ),
+                                              const SizedBox(height: 4),
+                                              Text(
+                                                _routeTransportReasoning[_selectedRouteIndex] ?? 'Best mode for this route',
+                                                style: TextStyle(
+                                                  fontSize: 12,
+                                                  color: Colors.grey[700],
+                                                ),
+                                                maxLines: 2,
+                                                overflow: TextOverflow.ellipsis,
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      ],
                                     ),
-                                    const SizedBox(width: 12),
-                                    Expanded(
-                                      child: Column(
-                                        crossAxisAlignment: CrossAxisAlignment.start,
-                                        children: [
-                                          Text(
-                                            '${_getTransportModeLabel(_routeTransportRecommendations[_selectedRouteIndex]!)} would be good',
+                                    // Book Now button for Rapido
+                                    if (_routeTransportRecommendations[_selectedRouteIndex] == 'rapido') ...[
+                                      const SizedBox(height: 12),
+                                      SizedBox(
+                                        width: double.infinity,
+                                        child: ElevatedButton.icon(
+                                          onPressed: _openRapidoApp,
+                                          icon: const Icon(Icons.motorcycle_rounded, size: 18),
+                                          label: const Text(
+                                            'Book Now',
                                             style: TextStyle(
                                               fontSize: 14,
-                                              fontWeight: FontWeight.bold,
-                                              color: Colors.grey[900],
+                                              fontWeight: FontWeight.w600,
                                             ),
                                           ),
-                                          const SizedBox(height: 4),
-                                          Text(
-                                            _routeTransportReasoning[_selectedRouteIndex] ?? 'Best mode for this route',
-                                            style: TextStyle(
-                                              fontSize: 12,
-                                              color: Colors.grey[700],
+                                          style: ElevatedButton.styleFrom(
+                                            backgroundColor: Colors.purple[700],
+                                            foregroundColor: Colors.white,
+                                            padding: const EdgeInsets.symmetric(vertical: 12),
+                                            shape: RoundedRectangleBorder(
+                                              borderRadius: BorderRadius.circular(10),
                                             ),
-                                            maxLines: 2,
-                                            overflow: TextOverflow.ellipsis,
+                                            elevation: 2,
                                           ),
-                                        ],
+                                        ),
                                       ),
-                                    ),
+                                    ],
                                   ],
                                 ),
                               ),
