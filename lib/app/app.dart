@@ -27,82 +27,82 @@ class MyApp extends StatelessWidget {
           onBackground: Colors.black,
           onError: Colors.white,
         ),
-        // Product Sans font family
-        fontFamily: GoogleFonts.productSans().fontFamily,
+        // Montserrat font family
+        fontFamily: GoogleFonts.montserrat().fontFamily,
         textTheme: TextTheme(
           // Headings - Medium weight, Black color
-          displayLarge: GoogleFonts.productSans(
+          displayLarge: GoogleFonts.montserrat(
             fontSize: 57,
             fontWeight: FontWeight.w500, // Medium
             color: Colors.black,
           ),
-          displayMedium: GoogleFonts.productSans(
+          displayMedium: GoogleFonts.montserrat(
             fontSize: 45,
             fontWeight: FontWeight.w500, // Medium
             color: Colors.black,
           ),
-          displaySmall: GoogleFonts.productSans(
+          displaySmall: GoogleFonts.montserrat(
             fontSize: 36,
             fontWeight: FontWeight.w500, // Medium
             color: Colors.black,
           ),
-          headlineLarge: GoogleFonts.productSans(
+          headlineLarge: GoogleFonts.montserrat(
             fontSize: 32,
             fontWeight: FontWeight.w500, // Medium
             color: Colors.black,
           ),
-          headlineMedium: GoogleFonts.productSans(
+          headlineMedium: GoogleFonts.montserrat(
             fontSize: 28,
             fontWeight: FontWeight.w500, // Medium
             color: Colors.black,
           ),
-          headlineSmall: GoogleFonts.productSans(
+          headlineSmall: GoogleFonts.montserrat(
             fontSize: 24,
             fontWeight: FontWeight.w500, // Medium
             color: Colors.black,
           ),
-          titleLarge: GoogleFonts.productSans(
+          titleLarge: GoogleFonts.montserrat(
             fontSize: 22,
             fontWeight: FontWeight.w500, // Medium
             color: Colors.black,
           ),
-          titleMedium: GoogleFonts.productSans(
+          titleMedium: GoogleFonts.montserrat(
             fontSize: 16,
             fontWeight: FontWeight.w500, // Medium
             color: Colors.black,
           ),
-          titleSmall: GoogleFonts.productSans(
+          titleSmall: GoogleFonts.montserrat(
             fontSize: 14,
             fontWeight: FontWeight.w500, // Medium
             color: Colors.black,
           ),
           // Subheadings and small sections - Light weight, Gray color
-          bodyLarge: GoogleFonts.productSans(
+          bodyLarge: GoogleFonts.montserrat(
             fontSize: 16,
             fontWeight: FontWeight.w300, // Light
             color: Colors.grey[700],
           ),
-          bodyMedium: GoogleFonts.productSans(
+          bodyMedium: GoogleFonts.montserrat(
             fontSize: 14,
             fontWeight: FontWeight.w300, // Light
             color: Colors.grey[700],
           ),
-          bodySmall: GoogleFonts.productSans(
+          bodySmall: GoogleFonts.montserrat(
             fontSize: 12,
             fontWeight: FontWeight.w300, // Light
             color: Colors.grey[600],
           ),
-          labelLarge: GoogleFonts.productSans(
+          labelLarge: GoogleFonts.montserrat(
             fontSize: 14,
             fontWeight: FontWeight.w300, // Light
             color: Colors.grey[700],
           ),
-          labelMedium: GoogleFonts.productSans(
+          labelMedium: GoogleFonts.montserrat(
             fontSize: 12,
             fontWeight: FontWeight.w300, // Light
             color: Colors.grey[600],
           ),
-          labelSmall: GoogleFonts.productSans(
+          labelSmall: GoogleFonts.montserrat(
             fontSize: 11,
             fontWeight: FontWeight.w300, // Light
             color: Colors.grey[600],
@@ -114,7 +114,7 @@ class MyApp extends StatelessWidget {
           foregroundColor: Colors.black,
           elevation: 0,
           iconTheme: const IconThemeData(color: Colors.black),
-          titleTextStyle: GoogleFonts.productSans(
+          titleTextStyle: GoogleFonts.montserrat(
             fontSize: 20,
             fontWeight: FontWeight.w500, // Medium
             color: Colors.black,
@@ -145,11 +145,11 @@ class MyApp extends StatelessWidget {
             borderRadius: BorderRadius.circular(8),
             borderSide: const BorderSide(color: Colors.black, width: 2),
           ),
-          labelStyle: GoogleFonts.productSans(
+          labelStyle: GoogleFonts.montserrat(
             fontWeight: FontWeight.w300,
             color: Colors.grey[700],
           ),
-          hintStyle: GoogleFonts.productSans(
+          hintStyle: GoogleFonts.montserrat(
             fontWeight: FontWeight.w300,
             color: Colors.grey[500],
           ),
@@ -159,7 +159,7 @@ class MyApp extends StatelessWidget {
           style: ElevatedButton.styleFrom(
             backgroundColor: Colors.black,
             foregroundColor: Colors.white,
-            textStyle: GoogleFonts.productSans(
+            textStyle: GoogleFonts.montserrat(
               fontSize: 16,
               fontWeight: FontWeight.w500,
             ),
@@ -171,7 +171,7 @@ class MyApp extends StatelessWidget {
         textButtonTheme: TextButtonThemeData(
           style: TextButton.styleFrom(
             foregroundColor: Colors.black,
-            textStyle: GoogleFonts.productSans(
+            textStyle: GoogleFonts.montserrat(
               fontSize: 14,
               fontWeight: FontWeight.w300,
             ),
@@ -181,7 +181,7 @@ class MyApp extends StatelessWidget {
           style: OutlinedButton.styleFrom(
             foregroundColor: Colors.black,
             side: const BorderSide(color: Colors.black),
-            textStyle: GoogleFonts.productSans(
+            textStyle: GoogleFonts.montserrat(
               fontSize: 14,
               fontWeight: FontWeight.w300,
             ),
