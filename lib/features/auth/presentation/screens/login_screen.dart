@@ -64,49 +64,125 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: SafeArea(
-        child: Center(
-          child: Padding(
-            padding: const EdgeInsets.all(24.0),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                // App Logo/Icon
-                Icon(
-                  Icons.map,
-                  size: 100,
-                  color: Theme.of(context).primaryColor,
+      body: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: [
+              Colors.blue[50]!,
+              Colors.white,
+              Colors.green[50]!,
+            ],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+        ),
+        child: SafeArea(
+          child: Center(
+            child: SingleChildScrollView(
+              child: Padding(
+                padding: const EdgeInsets.all(24.0),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    // App Logo/Icon with modern container
+                    Container(
+                      padding: const EdgeInsets.all(24),
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: [
+                            Colors.blue[100]!,
+                            Colors.green[100]!,
+                          ],
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                        ),
+                        shape: BoxShape.circle,
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.1),
+                            blurRadius: 20,
+                            offset: const Offset(0, 8),
+                            spreadRadius: 0,
+                          ),
+                        ],
+                      ),
+                      child: Icon(
+                        Icons.map_rounded,
+                        size: 80,
+                        color: Colors.blue[800],
+                      ),
+                    ),
+                    const SizedBox(height: 32),
+                    
+                    // App Title with modern styling
+                    Text(
+                      'Google Maps App',
+                      style: TextStyle(
+                        fontSize: 28,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.grey[900],
+                        letterSpacing: -0.5,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    
+                    // Subtitle with modern styling
+                    Text(
+                      'Sign in to continue',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w500,
+                        color: Colors.grey[600],
+                        letterSpacing: 0.2,
+                      ),
+                    ),
+                    const SizedBox(height: 56),
+                    
+                    // Google Sign In Button in modern container
+                    Container(
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(16),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.1),
+                            blurRadius: 15,
+                            offset: const Offset(0, 4),
+                            spreadRadius: 0,
+                          ),
+                        ],
+                      ),
+                      child: GoogleSignInButton(
+                        onPressed: _isLoading ? null : _handleGoogleSignIn,
+                        isLoading: _isLoading,
+                      ),
+                    ),
+                    const SizedBox(height: 32),
+                    
+                    // Info Text with modern styling
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.7),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: Colors.grey[200]!.withOpacity(0.5),
+                          width: 1,
+                        ),
+                      ),
+                      child: Text(
+                        'By signing in, you agree to our Terms of Service\nand Privacy Policy',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w500,
+                          color: Colors.grey[600],
+                          height: 1.5,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 24),
-                
-                // App Title - using theme headlineMedium (medium weight, black)
-                Text(
-                  'Google Maps App',
-                  style: Theme.of(context).textTheme.headlineMedium,
-                ),
-                const SizedBox(height: 8),
-                
-                // Subtitle - using theme bodyLarge (light weight, gray)
-                Text(
-                  'Sign in to continue',
-                  style: Theme.of(context).textTheme.bodyLarge,
-                ),
-                const SizedBox(height: 48),
-                
-                // Google Sign In Button
-                GoogleSignInButton(
-                  onPressed: _isLoading ? null : _handleGoogleSignIn,
-                  isLoading: _isLoading,
-                ),
-                const SizedBox(height: 24),
-                
-                // Info Text - using theme bodySmall (light weight, gray)
-                Text(
-                  'By signing in, you agree to our Terms of Service\nand Privacy Policy',
-                  textAlign: TextAlign.center,
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-              ],
+              ),
             ),
           ),
         ),
