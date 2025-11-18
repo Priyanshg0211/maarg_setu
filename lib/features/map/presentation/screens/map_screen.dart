@@ -1090,7 +1090,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
               radius: radius,
               fillColor: pointColor.withOpacity(opacity.clamp(0.3, 0.6)),
               strokeColor: pointColor.withOpacity(0.8),
-              strokeWidth: 1.5,
+              strokeWidth: 1,
               zIndex: 1,
             ),
           );
