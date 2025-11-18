@@ -3699,35 +3699,61 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                       ],
                     ),
                     const SizedBox(height: 12),
-                    // Origin and Destination Input Fields (Google Maps style)
+                    // Origin and Destination Input Fields (Modern Style)
                     Container(
                       decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(8),
+                        gradient: LinearGradient(
+                          colors: [
+                            Colors.white,
+                            Colors.blue[50]!,
+                          ],
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                        ),
+                        borderRadius: BorderRadius.circular(16),
                         boxShadow: [
                           BoxShadow(
                             color: Colors.black.withOpacity(0.1),
-                            blurRadius: 10,
-                            offset: const Offset(0, 2),
+                            blurRadius: 15,
+                            offset: const Offset(0, 4),
+                            spreadRadius: 0,
                           ),
                         ],
+                        border: Border.all(
+                          color: Colors.white.withOpacity(0.8),
+                          width: 1.5,
+                        ),
                       ),
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           // Origin Input Field
-                          Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                          Container(
+                            margin: const EdgeInsets.all(12),
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withOpacity(0.9),
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                color: Colors.green[100]!.withOpacity(0.5),
+                                width: 1,
+                              ),
+                            ),
                             child: Row(
                               children: [
-                                Padding(
-                                  padding: const EdgeInsets.only(left: 4, right: 12),
+                                Container(
+                                  padding: const EdgeInsets.all(8),
+                                  decoration: BoxDecoration(
+                                    color: Colors.green[100],
+                                    borderRadius: BorderRadius.circular(10),
+                                  ),
                                   child: Icon(
-                                    Icons.radio_button_checked,
+                                    Icons.radio_button_checked_rounded,
                                     color: Colors.green[700],
                                     size: 20,
                                   ),
                                 ),
+                                const SizedBox(width: 12),
                                 Expanded(
                                   child: TextField(
                                     controller: _originController,
@@ -3735,11 +3761,19 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                                     decoration: InputDecoration(
                                       hintText: _currentLocation != null ? 'Your location' : 'Boarding point',
                                       border: InputBorder.none,
-                                      contentPadding: const EdgeInsets.symmetric(vertical: 14, horizontal: 8),
-                                      hintStyle: TextStyle(color: Colors.grey[400], fontSize: 14),
+                                      contentPadding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+                                      hintStyle: TextStyle(
+                                        color: Colors.grey[500],
+                                        fontSize: 15,
+                                        fontWeight: FontWeight.w500,
+                                      ),
                                       isDense: true,
                                     ),
-                                    style: const TextStyle(fontSize: 14),
+                                    style: TextStyle(
+                                      fontSize: 15,
+                                      fontWeight: FontWeight.w600,
+                                      color: Colors.grey[800],
+                                    ),
                                     onChanged: (value) {
                                       _onOriginSearchChanged(value);
                                     },
@@ -3751,10 +3785,14 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                                   ),
                                 ),
                                 if (_currentLocation != null && _originLocation == null && _originController.text.isEmpty)
-                                  Padding(
-                                    padding: const EdgeInsets.only(right: 8),
+                                  Container(
+                                    margin: const EdgeInsets.only(left: 8),
+                                    decoration: BoxDecoration(
+                                      color: Colors.blue[100],
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
                                     child: IconButton(
-                                      icon: Icon(Icons.my_location, color: Colors.blue[700], size: 20),
+                                      icon: Icon(Icons.my_location_rounded, color: Colors.blue[700], size: 20),
                                       onPressed: () {
                                         final lat = _currentLocation!.latitude;
                                         final lng = _currentLocation!.longitude;
@@ -3772,15 +3810,19 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                                         }
                                       },
                                       tooltip: 'Use current location',
-                                      padding: EdgeInsets.zero,
+                                      padding: const EdgeInsets.all(8),
                                       constraints: const BoxConstraints(),
                                     ),
                                   ),
                                 if (_originLocation != null || _originController.text.isNotEmpty)
-                                  Padding(
-                                    padding: const EdgeInsets.only(right: 8),
+                                  Container(
+                                    margin: const EdgeInsets.only(left: 8),
+                                    decoration: BoxDecoration(
+                                      color: Colors.grey[200],
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
                                     child: IconButton(
-                                      icon: const Icon(Icons.clear, color: Colors.grey, size: 20),
+                                      icon: const Icon(Icons.clear_rounded, color: Colors.grey, size: 18),
                                       onPressed: () {
                                         _originSearchDebounceTimer?.cancel();
                                         _originController.clear();
@@ -3790,39 +3832,76 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                                           _isSearchingOrigin = false;
                                         });
                                       },
-                                      padding: EdgeInsets.zero,
+                                      padding: const EdgeInsets.all(8),
                                       constraints: const BoxConstraints(),
                                     ),
                                   ),
                               ],
                             ),
                           ),
-                          // Divider
-                          Divider(height: 1, color: Colors.grey[300], thickness: 1),
+                          // Divider with gradient
+                          Container(
+                            margin: const EdgeInsets.symmetric(horizontal: 12),
+                            height: 1,
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                colors: [
+                                  Colors.transparent,
+                                  Colors.grey[300]!,
+                                  Colors.transparent,
+                                ],
+                                begin: Alignment.centerLeft,
+                                end: Alignment.centerRight,
+                              ),
+                            ),
+                          ),
                           // Destination Input Field
-                          Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                          Container(
+                            margin: const EdgeInsets.all(12),
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withOpacity(0.9),
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                color: Colors.red[100]!.withOpacity(0.5),
+                                width: 1,
+                              ),
+                            ),
                             child: Row(
                               children: [
-                                Padding(
-                                  padding: const EdgeInsets.only(left: 4, right: 12),
+                                Container(
+                                  padding: const EdgeInsets.all(8),
+                                  decoration: BoxDecoration(
+                                    color: Colors.red[100],
+                                    borderRadius: BorderRadius.circular(10),
+                                  ),
                                   child: Icon(
-                                    Icons.location_on,
+                                    Icons.location_on_rounded,
                                     color: Colors.red[700],
-                                    size: 24,
+                                    size: 20,
                                   ),
                                 ),
+                                const SizedBox(width: 12),
                                 Expanded(
                                   child: TextField(
                                     controller: _destinationController,
                                     focusNode: _destinationFocusNode,
-                                    decoration: const InputDecoration(
+                                    decoration: InputDecoration(
                                       hintText: 'Dropping point',
                                       border: InputBorder.none,
-                                      contentPadding: EdgeInsets.symmetric(vertical: 14, horizontal: 8),
+                                      contentPadding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+                                      hintStyle: TextStyle(
+                                        color: Colors.grey[500],
+                                        fontSize: 15,
+                                        fontWeight: FontWeight.w500,
+                                      ),
                                       isDense: true,
                                     ),
-                                    style: const TextStyle(fontSize: 14),
+                                    style: TextStyle(
+                                      fontSize: 15,
+                                      fontWeight: FontWeight.w600,
+                                      color: Colors.grey[800],
+                                    ),
                                     onChanged: (value) {
                                       _onDestinationSearchChanged(value);
                                     },
@@ -3834,10 +3913,14 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                                   ),
                                 ),
                                 if (_dropLocation != null || _destinationController.text.isNotEmpty)
-                                  Padding(
-                                    padding: const EdgeInsets.only(right: 8),
+                                  Container(
+                                    margin: const EdgeInsets.only(left: 8),
+                                    decoration: BoxDecoration(
+                                      color: Colors.grey[200],
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
                                     child: IconButton(
-                                      icon: const Icon(Icons.clear, color: Colors.grey, size: 20),
+                                      icon: const Icon(Icons.clear_rounded, color: Colors.grey, size: 18),
                                       onPressed: () {
                                         _destinationSearchDebounceTimer?.cancel();
                                         _destinationController.clear();
@@ -3847,7 +3930,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                                           _isSearchingDestination = false;
                                         });
                                       },
-                                      padding: EdgeInsets.zero,
+                                      padding: const EdgeInsets.all(8),
                                       constraints: const BoxConstraints(),
                                     ),
                                   ),
@@ -3857,29 +3940,40 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                           // Loading indicator while searching
                           if (_isSearchingOrigin || _isSearchingDestination)
                             Container(
+                              margin: const EdgeInsets.symmetric(horizontal: 12),
                               padding: const EdgeInsets.all(16),
-                              decoration: const BoxDecoration(
-                                color: Colors.white,
-                                border: Border(
-                                  top: BorderSide(color: Colors.grey, width: 0.5),
+                              decoration: BoxDecoration(
+                                color: Colors.white.withOpacity(0.9),
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(
+                                  color: Colors.blue[100]!.withOpacity(0.5),
+                                  width: 1,
                                 ),
                               ),
-                              child: const Row(
+                              child: Row(
                                 children: [
-                                  SizedBox(
-                                    width: 20,
-                                    height: 20,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                      valueColor: AlwaysStoppedAnimation<Color>(Colors.blue),
+                                  Container(
+                                    padding: const EdgeInsets.all(6),
+                                    decoration: BoxDecoration(
+                                      color: Colors.blue[100],
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    child: const SizedBox(
+                                      width: 18,
+                                      height: 18,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2.5,
+                                        valueColor: AlwaysStoppedAnimation<Color>(Colors.blue),
+                                      ),
                                     ),
                                   ),
-                                  SizedBox(width: 16),
+                                  const SizedBox(width: 12),
                                   Text(
                                     'Searching...',
                                     style: TextStyle(
-                                      color: Colors.grey,
+                                      color: Colors.grey[700],
                                       fontSize: 14,
+                                      fontWeight: FontWeight.w600,
                                     ),
                                   ),
                                 ],
@@ -3888,24 +3982,44 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                           // Origin Search suggestions
                           if (_originSearchSuggestions.isNotEmpty && !_isSearchingOrigin && _originFocusNode.hasFocus)
                             Container(
+                              margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                               constraints: const BoxConstraints(maxHeight: 200),
-                              decoration: const BoxDecoration(
-                                color: Colors.white,
-                                border: Border(
-                                  top: BorderSide(color: Colors.grey, width: 0.5),
+                              decoration: BoxDecoration(
+                                color: Colors.white.withOpacity(0.95),
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(
+                                  color: Colors.green[100]!.withOpacity(0.5),
+                                  width: 1,
                                 ),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.black.withOpacity(0.05),
+                                    blurRadius: 10,
+                                    offset: const Offset(0, 2),
+                                  ),
+                                ],
                               ),
                               child: _buildSuggestionsList(_originSearchSuggestions, isOrigin: true),
                             ),
                           // Destination Search suggestions
                           if (_destinationSearchSuggestions.isNotEmpty && !_isSearchingDestination && _destinationFocusNode.hasFocus)
                             Container(
+                              margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                               constraints: const BoxConstraints(maxHeight: 200),
-                              decoration: const BoxDecoration(
-                                color: Colors.white,
-                                border: Border(
-                                  top: BorderSide(color: Colors.grey, width: 0.5),
+                              decoration: BoxDecoration(
+                                color: Colors.white.withOpacity(0.95),
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(
+                                  color: Colors.red[100]!.withOpacity(0.5),
+                                  width: 1,
                                 ),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.black.withOpacity(0.05),
+                                    blurRadius: 10,
+                                    offset: const Offset(0, 2),
+                                  ),
+                                ],
                               ),
                               child: _buildSuggestionsList(_destinationSearchSuggestions, isOrigin: false),
                             ),
