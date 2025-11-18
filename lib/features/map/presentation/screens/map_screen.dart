@@ -28,13 +28,11 @@ class MapScreen extends StatefulWidget {
 class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
   final Completer<GoogleMapController> _controller = Completer();
   final LocationService _locationService = LocationService();
-  final DirectionsService _directionsService = DirectionsService();
   final GeocodingService _geocodingService = GeocodingService();
   final TrafficService _trafficService = TrafficService();
   final NearbyPlacesService _nearbyPlacesService = NearbyPlacesService();
   final RouteOptimizerService _routeOptimizerService = RouteOptimizerService();
   final GeminiAIService _geminiAIService = GeminiAIService();
-  final AuthService _authService = AuthService();
   final TextEditingController _originController = TextEditingController();
   final TextEditingController _destinationController = TextEditingController();
   final FocusNode _originFocusNode = FocusNode();
@@ -45,7 +43,6 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
   LatLng? _originLocation; // Boarding/Origin location
   LatLng? _dropLocation; // Dropping/Destination location
   LatLng? _snappedCurrentLocation;
-  LatLng? _snappedOriginLocation;
   LatLng? _snappedDropLocation;
   String? _originLocationAddress;
   bool _isLoadingRoute = false;
@@ -102,7 +99,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
   List<HyperlocalBusinessInsight> _businessInsights = [];
   bool _isLoadingAIPrediction = false;
   bool _isBottomSheetOpen = false; // Track if bottom sheet is currently open
-  DateTime? _lastBottomSheetOpenTime; // Track when bottom sheet was last opened
+// Track when bottom sheet was last opened
   bool _hasShownRouteBottomSheet = false; // Track if route bottom sheet has been shown once
   
   AnimationController? _markerAnimationController;
@@ -363,7 +360,6 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
       });
       
       final snapped = await _geocodingService.snapToRoad(position);
-      _snappedOriginLocation = snapped;
       position = snapped!;
       
       // Reverse geocode to get address
@@ -396,7 +392,6 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
           });
           
           final snapped = await _geocodingService.snapToRoad(newPosition);
-          _snappedOriginLocation = snapped;
           
           final addressInfo = await _geocodingService.reverseGeocode(snapped!);
           _originLocationAddress = addressInfo?['address'] as String?;
@@ -499,7 +494,6 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
   void _removeOriginLocation() {
     setState(() {
       _originLocation = null;
-      _snappedOriginLocation = null;
       _originLocationAddress = null;
       _originController.clear();
       _markers.removeWhere((marker) => marker.markerId.value == 'originLocation');
@@ -2681,7 +2675,6 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     // Set flags immediately before showing to prevent race conditions
     _hasShownRouteBottomSheet = true;
     _isBottomSheetOpen = true;
-    _lastBottomSheetOpenTime = DateTime.now();
     
     showModalBottomSheet(
       context: context,
