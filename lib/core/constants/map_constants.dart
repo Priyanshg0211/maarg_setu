@@ -15,6 +15,10 @@ class MapConstants {
   // 5. Geocoding API
   static const String googleMapsApiKey = 'AIzaSyCK7_NvFvexUKYaNeDalhmFiNHN5wcOnyI';
   
+  // Gemini AI API Key (Get from https://makersuite.google.com/app/apikey)
+  // TODO: Replace with your actual Gemini API key
+  static const String geminiApiKey = 'AIzaSyA8Iv7qTw9FjJLg7rx_B6zl0ajyo0EkN_I';
+  
   // API URLs
   static const String directionsApiUrl = 'https://maps.googleapis.com/maps/api/directions/json';
   static const String geocodingApiUrl = 'https://maps.googleapis.com/maps/api/geocode/json';

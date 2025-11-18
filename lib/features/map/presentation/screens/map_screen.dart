@@ -14,6 +14,7 @@ import '../../services/geocoding_service.dart';
 import '../../services/traffic_service.dart';
 import '../../services/nearby_places_service.dart';
 import '../../services/route_optimizer_service.dart';
+import '../../services/gemini_ai_service.dart';
 import '../../../../features/auth/services/auth_service.dart';
 
 class MapScreen extends StatefulWidget {
@@ -31,6 +32,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
   final TrafficService _trafficService = TrafficService();
   final NearbyPlacesService _nearbyPlacesService = NearbyPlacesService();
   final RouteOptimizerService _routeOptimizerService = RouteOptimizerService();
+  final GeminiAIService _geminiAIService = GeminiAIService();
   final AuthService _authService = AuthService();
   final TextEditingController _originController = TextEditingController();
   final TextEditingController _destinationController = TextEditingController();
@@ -88,6 +90,12 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
   List<NearbyPlace> _nearbyPlaces = [];
   bool _isLoadingPlaces = false;
   bool _useOptimizedRoutes = true; // Use optimized routes by default
+  
+  // AI-powered predictions and insights
+  HyperlocalPrediction? _aiPrediction;
+  AIRouteRecommendation? _aiRouteRecommendation;
+  List<HyperlocalBusinessInsight> _businessInsights = [];
+  bool _isLoadingAIPrediction = false;
   
   AnimationController? _markerAnimationController;
   LatLng? _previousLocation;
@@ -602,6 +610,12 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
         places: places,
       );
 
+      // Get AI-powered prediction for hyperlocal area
+      _getAIPrediction(center, places, alerts);
+
+      // Get business insights for hyperlocal users
+      _getBusinessInsights(places);
+
       if (mounted) {
         setState(() {
           _nearbyPlaces = places;
@@ -616,6 +630,95 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
           _isLoadingPlaces = false;
         });
       }
+    }
+  }
+
+  /// Get AI-powered traffic prediction
+  Future<void> _getAIPrediction(
+    LatLng location,
+    List<NearbyPlace> places,
+    List<TrafficAlert> alerts,
+  ) async {
+    if (_isLoadingAIPrediction) return;
+    
+    setState(() {
+      _isLoadingAIPrediction = true;
+    });
+
+    try {
+      final prediction = await _geminiAIService.predictTraffic(
+        location: location,
+        nearbyPlaces: places,
+        currentAlerts: alerts,
+        currentTime: DateTime.now(),
+      );
+
+      if (mounted) {
+        setState(() {
+          _aiPrediction = prediction;
+          _isLoadingAIPrediction = false;
+        });
+      }
+    } catch (e) {
+      print('Error getting AI prediction: $e');
+      if (mounted) {
+        setState(() {
+          _isLoadingAIPrediction = false;
+        });
+      }
+    }
+  }
+
+  /// Get business insights for hyperlocal users
+  Future<void> _getBusinessInsights(List<NearbyPlace> places) async {
+    try {
+      final insights = await _geminiAIService.getBusinessInsights(
+        places: places,
+        currentTime: DateTime.now(),
+      );
+
+      if (mounted) {
+        setState(() {
+          _businessInsights = insights;
+        });
+      }
+    } catch (e) {
+      print('Error getting business insights: $e');
+    }
+  }
+
+  /// Get AI-powered route recommendation
+  Future<void> _getAIRouteRecommendation(
+    LatLng origin,
+    LatLng destination,
+  ) async {
+    try {
+      final originPlaces = _nearbyPlaces.where((p) {
+        final dist = _calculateDistance(origin, p.location);
+        return dist <= MapConstants.radarRadius;
+      }).toList();
+      
+      final destPlaces = _nearbyPlaces.where((p) {
+        final dist = _calculateDistance(destination, p.location);
+        return dist <= MapConstants.radarRadius;
+      }).toList();
+
+      final recommendation = await _geminiAIService.recommendRoute(
+        origin: origin,
+        destination: destination,
+        originPlaces: originPlaces,
+        destinationPlaces: destPlaces,
+        alerts: _trafficAlerts,
+        currentTime: DateTime.now(),
+      );
+
+      if (mounted) {
+        setState(() {
+          _aiRouteRecommendation = recommendation;
+        });
+      }
+    } catch (e) {
+      print('Error getting AI route recommendation: $e');
     }
   }
 
@@ -647,6 +750,9 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
         
         // Extract RouteDetails from OptimizedRoute
         routes = optimizedRoutes.map((optRoute) => optRoute.route).toList();
+        
+        // Get AI-powered route recommendation
+        _getAIRouteRecommendation(origin, destination);
         
         // Update traffic alerts from optimized routes
         if (optimizedRoutes.isNotEmpty) {
@@ -703,9 +809,15 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
       
       // Show success message when route is found
       if (routes.isNotEmpty) {
-        final message = _useOptimizedRoutes 
+        String message = _useOptimizedRoutes 
             ? 'Optimal route found! Avoiding high-traffic areas.'
             : 'Route found! Path displayed on map.';
+        
+        // Add AI insights if available
+        if (_aiRouteRecommendation != null) {
+          message += ' ${_aiRouteRecommendation!.recommendation}';
+        }
+        
         _showSnackBar(message);
       }
     } catch (e) {
@@ -2480,12 +2592,42 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                                   child: Column(
                                     crossAxisAlignment: CrossAxisAlignment.start,
                                     children: [
-                                      const Text(
-                                        'Route',
-                                        style: TextStyle(
-                                          fontSize: 16,
-                                          fontWeight: FontWeight.bold,
-                                        ),
+                                      Row(
+                                        children: [
+                                          const Text(
+                                            'Route',
+                                            style: TextStyle(
+                                              fontSize: 16,
+                                              fontWeight: FontWeight.bold,
+                                            ),
+                                          ),
+                                          if (_useOptimizedRoutes) ...[
+                                            const SizedBox(width: 8),
+                                            Container(
+                                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                              decoration: BoxDecoration(
+                                                color: Colors.green[100],
+                                                borderRadius: BorderRadius.circular(8),
+                                              ),
+                                              child: Row(
+                                                mainAxisSize: MainAxisSize.min,
+                                                children: [
+                                                  Icon(Icons.auto_awesome, 
+                                                    color: Colors.green[700], size: 12),
+                                                  const SizedBox(width: 4),
+                                                  Text(
+                                                    'AI Optimized',
+                                                    style: TextStyle(
+                                                      fontSize: 10,
+                                                      fontWeight: FontWeight.bold,
+                                                      color: Colors.green[700],
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                            ),
+                                          ],
+                                        ],
                                       ),
                                       const SizedBox(height: 8),
                                       Row(
@@ -2509,8 +2651,98 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                                               color: Colors.grey[700],
                                             ),
                                           ),
+                                          if (_aiRouteRecommendation != null && 
+                                              _aiRouteRecommendation!.timeSavings > 0) ...[
+                                            const SizedBox(width: 16),
+                                            Icon(Icons.timer_outlined, 
+                                              size: 16, color: Colors.green[700]),
+                                            const SizedBox(width: 4),
+                                            Text(
+                                              'Saves ${_aiRouteRecommendation!.timeSavings.toStringAsFixed(0)} min',
+                                              style: TextStyle(
+                                                fontSize: 12,
+                                                color: Colors.green[700],
+                                                fontWeight: FontWeight.bold,
+                                              ),
+                                            ),
+                                          ],
                                         ],
                                       ),
+                                      // AI Route Recommendation
+                                      if (_aiRouteRecommendation != null) ...[
+                                        const SizedBox(height: 12),
+                                        Container(
+                                          padding: const EdgeInsets.all(10),
+                                          decoration: BoxDecoration(
+                                            color: Colors.purple[50],
+                                            borderRadius: BorderRadius.circular(8),
+                                            border: Border.all(
+                                              color: Colors.purple[200]!,
+                                              width: 1,
+                                            ),
+                                          ),
+                                          child: Column(
+                                            crossAxisAlignment: CrossAxisAlignment.start,
+                                            children: [
+                                              Row(
+                                                children: [
+                                                  Icon(Icons.lightbulb_outline, 
+                                                    color: Colors.purple[700], size: 16),
+                                                  const SizedBox(width: 6),
+                                                  const Text(
+                                                    'AI Recommendation',
+                                                    style: TextStyle(
+                                                      fontSize: 12,
+                                                      fontWeight: FontWeight.bold,
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                              const SizedBox(height: 6),
+                                              Text(
+                                                _aiRouteRecommendation!.recommendation,
+                                                style: TextStyle(
+                                                  fontSize: 11,
+                                                  color: Colors.grey[800],
+                                                ),
+                                              ),
+                                              if (_aiRouteRecommendation!.reasoning.isNotEmpty) ...[
+                                                const SizedBox(height: 4),
+                                                Text(
+                                                  _aiRouteRecommendation!.reasoning,
+                                                  style: TextStyle(
+                                                    fontSize: 10,
+                                                    color: Colors.grey[600],
+                                                    fontStyle: FontStyle.italic,
+                                                  ),
+                                                ),
+                                              ],
+                                              if (_aiRouteRecommendation!.benefits.isNotEmpty) ...[
+                                                const SizedBox(height: 6),
+                                                ..._aiRouteRecommendation!.benefits.take(2).map((benefit) => Padding(
+                                                  padding: const EdgeInsets.only(bottom: 2),
+                                                  child: Row(
+                                                    children: [
+                                                      Icon(Icons.check, 
+                                                        color: Colors.green[700], size: 12),
+                                                      const SizedBox(width: 4),
+                                                      Expanded(
+                                                        child: Text(
+                                                          benefit,
+                                                          style: TextStyle(
+                                                            fontSize: 10,
+                                                            color: Colors.grey[700],
+                                                          ),
+                                                        ),
+                                                      ),
+                                                    ],
+                                                  ),
+                                                )),
+                                              ],
+                                            ],
+                                          ),
+                                        ),
+                                      ],
                                     ],
                                   ),
                                 ),
@@ -2595,6 +2827,60 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                               ],
                             ],
                             const SizedBox(height: 12),
+                            // AI Optimization Toggle
+                            Container(
+                              padding: const EdgeInsets.all(10),
+                              decoration: BoxDecoration(
+                                color: Colors.grey[50],
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(color: Colors.grey[200]!),
+                              ),
+                              child: Row(
+                                children: [
+                                  Icon(
+                                    Icons.auto_awesome,
+                                    color: _useOptimizedRoutes ? Colors.purple[700] : Colors.grey,
+                                    size: 20,
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        const Text(
+                                          'AI Route Optimization',
+                                          style: TextStyle(
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                        ),
+                                        Text(
+                                          _useOptimizedRoutes 
+                                              ? 'Using AI for hyperlocal routes'
+                                              : 'Standard routes enabled',
+                                          style: TextStyle(
+                                            fontSize: 10,
+                                            color: Colors.grey[600],
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  Switch(
+                                    value: _useOptimizedRoutes,
+                                    onChanged: (value) {
+                                      setState(() {
+                                        _useOptimizedRoutes = value;
+                                      });
+                                      if (value && _originLocation != null && _dropLocation != null) {
+                                        _fetchRoute(showAlternatives: true);
+                                      }
+                                    },
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(height: 12),
                             SizedBox(
                               width: double.infinity,
                               child: ElevatedButton(
@@ -2617,6 +2903,198 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                         ),
                       ),
                     ],
+                  ),
+                ),
+              ),
+            ),
+
+          // AI-Powered Hyperlocal Insights Panel
+          if (!_isNavigating && _aiPrediction != null)
+            Positioned(
+              top: 0,
+              left: 0,
+              right: 0,
+              child: SafeArea(
+                child: Padding(
+                  padding: EdgeInsets.only(
+                    top: _trafficAlerts.isNotEmpty ? 220 : 100,
+                    left: 16,
+                    right: 16,
+                  ),
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(12),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.15),
+                          blurRadius: 10,
+                          offset: const Offset(0, 2),
+                        ),
+                      ],
+                    ),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        // AI Header
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              colors: [Colors.purple[400]!, Colors.blue[400]!],
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                            ),
+                            borderRadius: const BorderRadius.only(
+                              topLeft: Radius.circular(12),
+                              topRight: Radius.circular(12),
+                            ),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(Icons.auto_awesome, color: Colors.white, size: 20),
+                              const SizedBox(width: 8),
+                              const Text(
+                                'AI Hyperlocal Insights',
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.white,
+                                ),
+                              ),
+                              const Spacer(),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: Colors.white.withOpacity(0.3),
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: Text(
+                                  '${(_aiPrediction!.confidence * 100).toInt()}%',
+                                  style: const TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.white,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        // Prediction
+                        Padding(
+                          padding: const EdgeInsets.all(12),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  Icon(Icons.trending_up, color: Colors.blue[700], size: 18),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: Text(
+                                      _aiPrediction!.prediction,
+                                      style: const TextStyle(
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              if (_aiPrediction!.reasoning.isNotEmpty) ...[
+                                const SizedBox(height: 8),
+                                Text(
+                                  _aiPrediction!.reasoning,
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: Colors.grey[700],
+                                  ),
+                                ),
+                              ],
+                              // Recommendations
+                              if (_aiPrediction!.recommendations.isNotEmpty) ...[
+                                const SizedBox(height: 12),
+                                const Text(
+                                  'Recommendations:',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                ..._aiPrediction!.recommendations.take(3).map((rec) => Padding(
+                                  padding: const EdgeInsets.only(bottom: 4),
+                                  child: Row(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Icon(Icons.check_circle_outline, 
+                                        color: Colors.green[700], size: 16),
+                                      const SizedBox(width: 6),
+                                      Expanded(
+                                        child: Text(
+                                          rec,
+                                          style: TextStyle(
+                                            fontSize: 11,
+                                            color: Colors.grey[700],
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                )),
+                              ],
+                              // Hyperlocal Insights
+                              if (_aiPrediction!.insights.isNotEmpty) ...[
+                                const SizedBox(height: 12),
+                                Container(
+                                  padding: const EdgeInsets.all(8),
+                                  decoration: BoxDecoration(
+                                    color: Colors.blue[50],
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Row(
+                                        children: [
+                                          Icon(Icons.local_activity, 
+                                            color: Colors.blue[700], size: 16),
+                                          const SizedBox(width: 6),
+                                          const Text(
+                                            'Hyperlocal Tips:',
+                                            style: TextStyle(
+                                              fontSize: 11,
+                                              fontWeight: FontWeight.bold,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                      const SizedBox(height: 4),
+                                      if (_aiPrediction!.insights.containsKey('peakHours'))
+                                        _buildInsightRow(
+                                          'Peak Hours',
+                                          _aiPrediction!.insights['peakHours'].toString(),
+                                        ),
+                                      if (_aiPrediction!.insights.containsKey('bestTimeToVisit'))
+                                        _buildInsightRow(
+                                          'Best Time',
+                                          _aiPrediction!.insights['bestTimeToVisit'].toString(),
+                                        ),
+                                      if (_aiPrediction!.insights.containsKey('marketCount'))
+                                        _buildInsightRow(
+                                          'Markets Nearby',
+                                          _aiPrediction!.insights['marketCount'].toString(),
+                                        ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ),
@@ -2733,6 +3211,166 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                                         ],
                                       ),
                                     ),
+                                  ],
+                                ),
+                              );
+                            },
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+
+          // Hyperlocal Business Insights Panel
+          if (!_isNavigating && _businessInsights.isNotEmpty)
+            Positioned(
+              right: 16,
+              top: 0,
+              child: SafeArea(
+                child: Padding(
+                  padding: EdgeInsets.only(
+                    top: _trafficAlerts.isNotEmpty 
+                        ? (_aiPrediction != null ? 500 : 300)
+                        : (_aiPrediction != null ? 400 : 200),
+                  ),
+                  child: Container(
+                    constraints: const BoxConstraints(maxWidth: 280, maxHeight: 300),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(12),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.15),
+                          blurRadius: 10,
+                          offset: const Offset(0, 2),
+                        ),
+                      ],
+                    ),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: Colors.orange[100],
+                            borderRadius: const BorderRadius.only(
+                              topLeft: Radius.circular(12),
+                              topRight: Radius.circular(12),
+                            ),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(Icons.store, color: Colors.orange[800], size: 18),
+                              const SizedBox(width: 6),
+                              const Text(
+                                'Local Businesses',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                              const Spacer(),
+                              Text(
+                                '${_businessInsights.length}',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: Colors.orange[800],
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        Flexible(
+                          child: ListView.builder(
+                            shrinkWrap: true,
+                            itemCount: _businessInsights.length > 3 ? 3 : _businessInsights.length,
+                            itemBuilder: (context, index) {
+                              final insight = _businessInsights[index];
+                              return Container(
+                                padding: const EdgeInsets.all(10),
+                                decoration: BoxDecoration(
+                                  border: Border(
+                                    bottom: BorderSide(
+                                      color: Colors.grey[200]!,
+                                      width: index < (_businessInsights.length > 3 ? 2 : _businessInsights.length - 1) ? 1 : 0,
+                                    ),
+                                  ),
+                                ),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      insight.businessName,
+                                      style: const TextStyle(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Row(
+                                      children: [
+                                        Icon(Icons.access_time, size: 12, color: Colors.grey[600]),
+                                        const SizedBox(width: 4),
+                                        Expanded(
+                                          child: Text(
+                                            'Peak: ${insight.peakHours}',
+                                            style: TextStyle(
+                                              fontSize: 10,
+                                              color: Colors.grey[600],
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 2),
+                                    Row(
+                                      children: [
+                                        Icon(Icons.star_outline, size: 12, color: Colors.amber[700]),
+                                        const SizedBox(width: 4),
+                                        Expanded(
+                                          child: Text(
+                                            'Best: ${insight.bestTimeToVisit}',
+                                            style: TextStyle(
+                                              fontSize: 10,
+                                              color: Colors.grey[600],
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    if (insight.localTip.isNotEmpty) ...[
+                                      const SizedBox(height: 4),
+                                      Container(
+                                        padding: const EdgeInsets.all(6),
+                                        decoration: BoxDecoration(
+                                          color: Colors.blue[50],
+                                          borderRadius: BorderRadius.circular(6),
+                                        ),
+                                        child: Row(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            Icon(Icons.lightbulb_outline, 
+                                              size: 12, color: Colors.blue[700]),
+                                            const SizedBox(width: 4),
+                                            Expanded(
+                                              child: Text(
+                                                insight.localTip,
+                                                style: TextStyle(
+                                                  fontSize: 9,
+                                                  color: Colors.grey[700],
+                                                ),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ],
                                   ],
                                 ),
                               );
@@ -2989,6 +3627,33 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
           ),
         );
       },
+    );
+  }
+
+  /// Build insight row widget
+  Widget _buildInsightRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 4),
+      child: Row(
+        children: [
+          Text(
+            '$label: ',
+            style: TextStyle(
+              fontSize: 10,
+              color: Colors.grey[600],
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 10,
+              color: Colors.blue[700],
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ],
+      ),
     );
   }
 

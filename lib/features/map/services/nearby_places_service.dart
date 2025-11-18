@@ -4,7 +4,7 @@ import 'package:http/http.dart' as http;
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import '../../../../core/constants/map_constants.dart';
 
-/// Place types that affect traffic
+/// Place types that affect traffic (hyperlocal focused)
 enum PlaceType {
   school,
   university,
@@ -18,6 +18,18 @@ enum PlaceType {
   parking,
   busStation,
   trainStation,
+  // Hyperlocal specific
+  vendor,
+  localMarket,
+  foodStall,
+  pharmacy,
+  bank,
+  atm,
+  gasStation,
+  postOffice,
+  laundry,
+  beautySalon,
+  bakery,
   other,
 }
 
@@ -54,7 +66,11 @@ class NearbyPlace {
       case PlaceType.shoppingMall:
         return 0.7; // High traffic, especially weekends
       case PlaceType.market:
+      case PlaceType.localMarket:
         return 0.9; // Very high traffic
+      case PlaceType.vendor:
+      case PlaceType.foodStall:
+        return 0.85; // Very high traffic - hyperlocal vendors
       case PlaceType.cafe:
       case PlaceType.restaurant:
         return 0.5; // Moderate traffic
@@ -67,6 +83,14 @@ class NearbyPlace {
         return 0.4; // Low to moderate
       case PlaceType.store:
         return 0.3; // Low traffic
+      case PlaceType.pharmacy:
+      case PlaceType.bank:
+      case PlaceType.atm:
+        return 0.4; // Moderate traffic
+      case PlaceType.gasStation:
+        return 0.5; // Moderate to high
+      case PlaceType.bakery:
+        return 0.6; // High during morning hours
       default:
         return 0.2;
     }
@@ -104,7 +128,7 @@ class NearbyPlacesService {
     List<String>? placeTypes,
   }) async {
     try {
-      // Default place types to search for
+      // Default place types to search for (hyperlocal focused)
       final types = placeTypes ?? [
         'school',
         'university',
@@ -119,6 +143,18 @@ class NearbyPlacesService {
         'bus_station',
         'train_station',
         'subway_station',
+        // Hyperlocal specific places
+        'food',
+        'bakery',
+        'pharmacy',
+        'bank',
+        'atm',
+        'gas_station',
+        'local_government_office',
+        'post_office',
+        'laundry',
+        'hair_care',
+        'beauty_salon',
       ];
 
       List<NearbyPlace> allPlaces = [];
@@ -258,35 +294,46 @@ class NearbyPlacesService {
     return alerts;
   }
 
-  /// Generate alert message based on place type and count
+  /// Generate alert message based on place type and count (hyperlocal focused)
   String _generateAlertMessage(PlaceType type, int count) {
     switch (type) {
       case PlaceType.school:
       case PlaceType.university:
         return count > 1
-            ? '$count educational institutions nearby - High traffic expected'
-            : 'School/College nearby - Traffic may be heavy during school hours';
+            ? '$count schools/colleges nearby - Avoid 8-9 AM & 3-4 PM'
+            : 'School nearby - Heavy traffic during drop-off/pick-up times';
       case PlaceType.mall:
       case PlaceType.shoppingMall:
         return count > 1
-            ? '$count shopping malls nearby - Heavy traffic area'
-            : 'Shopping mall nearby - Expect traffic congestion';
+            ? '$count shopping areas nearby - Busy on weekends'
+            : 'Shopping area nearby - Peak hours: 10 AM - 8 PM';
       case PlaceType.market:
+      case PlaceType.localMarket:
         return count > 1
-            ? '$count markets nearby - Very high traffic area'
-            : 'Market nearby - Heavy traffic expected';
+            ? '$count local markets nearby - Very busy, use alternate routes'
+            : 'Local market nearby - Peak: 6-10 AM & 5-8 PM';
+      case PlaceType.vendor:
+      case PlaceType.foodStall:
+        return count > 2
+            ? '$count street vendors nearby - Narrow lanes, slow traffic'
+            : 'Street vendors nearby - Expect slow-moving traffic';
       case PlaceType.cafe:
       case PlaceType.restaurant:
         return count > 3
-            ? '$count food establishments nearby - Moderate traffic'
-            : 'Food establishments nearby';
+            ? '$count food places nearby - Busy during meal times'
+            : 'Food establishments nearby - Peak: 8-10 AM, 12-2 PM, 6-9 PM';
       case PlaceType.busStation:
       case PlaceType.trainStation:
-        return 'Public transport hub nearby - High traffic area';
+        return 'Public transport hub nearby - High traffic, plan extra time';
       case PlaceType.hospital:
-        return 'Hospital nearby - Moderate traffic';
+        return 'Hospital nearby - Moderate traffic, emergency vehicles possible';
+      case PlaceType.bakery:
+        return 'Bakery nearby - Busy mornings (6-9 AM)';
+      case PlaceType.pharmacy:
+      case PlaceType.bank:
+        return 'Essential services nearby - Moderate traffic during business hours';
       default:
-        return 'Multiple places nearby - Traffic may be affected';
+        return 'Multiple local places nearby - Traffic may be affected';
     }
   }
 
@@ -304,8 +351,29 @@ class NearbyPlacesService {
       if (typeStr.contains('cafe')) return PlaceType.cafe;
       if (typeStr.contains('restaurant')) return PlaceType.restaurant;
       if (typeStr.contains('supermarket') || typeStr.contains('market')) {
+        if (typeStr.contains('local') || typeStr.contains('street')) {
+          return PlaceType.localMarket;
+        }
         return PlaceType.market;
       }
+      if (typeStr.contains('vendor') || typeStr.contains('street_food')) {
+        return PlaceType.vendor;
+      }
+      if (typeStr.contains('food') && typeStr.contains('stall')) {
+        return PlaceType.foodStall;
+      }
+      if (typeStr.contains('pharmacy')) return PlaceType.pharmacy;
+      if (typeStr.contains('bank')) return PlaceType.bank;
+      if (typeStr.contains('atm')) return PlaceType.atm;
+      if (typeStr.contains('gas_station') || typeStr.contains('fuel')) {
+        return PlaceType.gasStation;
+      }
+      if (typeStr.contains('post_office')) return PlaceType.postOffice;
+      if (typeStr.contains('laundry')) return PlaceType.laundry;
+      if (typeStr.contains('beauty_salon') || typeStr.contains('hair')) {
+        return PlaceType.beautySalon;
+      }
+      if (typeStr.contains('bakery')) return PlaceType.bakery;
       if (typeStr.contains('store') || typeStr.contains('shop')) {
         return PlaceType.store;
       }
