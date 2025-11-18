@@ -65,6 +65,8 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
   // Transportation mode
   String? _selectedTransportMode; // 'car', 'bike', 'bus', 'rapido', 'public_transport'
   bool _hasShownTransportModeDialog = false;
+  Map<int, String> _routeTransportRecommendations = {}; // Route index -> transport mode recommendation
+  Map<int, String> _routeTransportReasoning = {}; // Route index -> reasoning
   
   // Real-time distance and ETA
   double? _realTimeDistance; // in meters
@@ -876,7 +878,14 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
           _alternativeRoutes = routes;
           _selectedRouteIndex = 0;
           _routeDetails = routes[0];
+          _routeTransportRecommendations.clear(); // Clear old recommendations
+          _routeTransportReasoning.clear();
           _updateRoutePolylines(); // This will display the path with enhanced styling
+          
+          // Start fetching transport mode recommendations for all routes in background
+          for (int i = 0; i < routes.length; i++) {
+            _getTransportModeRecommendationForRoute(i);
+          }
           
           // Update real-time distance and ETA with route data (non-blocking)
           if (_currentLocation != null) {
@@ -1095,6 +1104,11 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
       _selectedRouteIndex = index;
       _routeDetails = _alternativeRoutes[index];
       _currentStepIndex = 0;
+      
+      // Get transport mode recommendation for this route if not already cached
+      if (!_routeTransportRecommendations.containsKey(index)) {
+        _getTransportModeRecommendationForRoute(index);
+      }
       _updateRoutePolylines();
       
       // Update real-time distance and ETA with selected route
@@ -2504,6 +2518,118 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     };
   }
   
+  /// Get transport mode recommendation for a specific route
+  Future<void> _getTransportModeRecommendationForRoute(int routeIndex) async {
+    if (routeIndex < 0 || routeIndex >= _alternativeRoutes.length) return;
+    
+    try {
+      final route = _alternativeRoutes[routeIndex];
+      final routesData = [{
+        'distance': route.distance,
+        'duration': route.duration,
+        'distanceValue': route.distanceValue,
+        'durationValue': route.durationValue,
+      }];
+      
+      // Get recommendation for all transport modes
+      final transportModes = ['car', 'bike', 'bus', 'rapido', 'public_transport'];
+      String? bestMode;
+      String? bestReasoning;
+      double bestScore = 0;
+      
+      for (final mode in transportModes) {
+        final recommendation = await _geminiAIService.recommendRouteForTransportMode(
+          transportMode: mode,
+          routes: routesData,
+          alerts: _trafficAlerts.take(3).toList(),
+          nearbyPlaces: _nearbyPlaces.take(5).toList(),
+          currentTime: DateTime.now(),
+        ).timeout(
+          const Duration(seconds: 3),
+          onTimeout: () => <String, dynamic>{},
+        );
+        
+        if (recommendation != null && recommendation.isNotEmpty) {
+          final timeSavings = (recommendation['timeSavings'] as num?)?.toDouble() ?? 0;
+          final reasoning = recommendation['reasoning'] as String? ?? '';
+          
+          // Score based on time savings and positive reasoning
+          final score = timeSavings + (reasoning.toLowerCase().contains('good') || 
+                      reasoning.toLowerCase().contains('best') ? 5 : 0);
+          
+          if (score > bestScore) {
+            bestScore = score;
+            bestMode = mode;
+            bestReasoning = reasoning;
+          }
+        }
+      }
+      
+      if (bestMode != null && bestReasoning != null && mounted) {
+        setState(() {
+          _routeTransportRecommendations[routeIndex] = bestMode!;
+          _routeTransportReasoning[routeIndex] = bestReasoning!;
+        });
+      }
+    } catch (e) {
+      print('Error getting transport recommendation for route: $e');
+    }
+  }
+  
+  /// Get transport mode icon
+  IconData _getTransportModeIcon(String mode) {
+    switch (mode) {
+      case 'car':
+        return Icons.directions_car_rounded;
+      case 'bike':
+        return Icons.two_wheeler_rounded;
+      case 'bus':
+        return Icons.directions_bus_rounded;
+      case 'rapido':
+        return Icons.motorcycle_rounded;
+      case 'public_transport':
+        return Icons.train_rounded;
+      default:
+        return Icons.directions_rounded;
+    }
+  }
+  
+  /// Get transport mode label
+  String _getTransportModeLabel(String mode) {
+    switch (mode) {
+      case 'car':
+        return 'Car';
+      case 'bike':
+        return 'Bike';
+      case 'bus':
+        return 'Bus';
+      case 'rapido':
+        return 'Rapido';
+      case 'public_transport':
+        return 'Public Transport';
+      default:
+        return mode;
+    }
+  }
+  
+  /// Get transport mode color
+  Color _getTransportModeColor(String mode) {
+    switch (mode) {
+      case 'car':
+        return Colors.blue;
+      case 'bike':
+        return Colors.green;
+      case 'bus':
+        return Colors.orange;
+      case 'rapido':
+        return Colors.purple;
+      case 'public_transport':
+        return Colors.red;
+      default:
+        return Colors.grey;
+    }
+  }
+
   /// Use fallback route selection when AI fails
   void _useFallbackRouteSelection() {
     if (_selectedTransportMode == null || _alternativeRoutes.isEmpty) return;
@@ -3354,6 +3480,39 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                                         color: Colors.grey[600],
                                       ),
                                     ),
+                                    // Show transport mode recommendation if available
+                                    if (_routeTransportRecommendations.containsKey(index)) ...[
+                                      const SizedBox(height: 6),
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                                        decoration: BoxDecoration(
+                                          color: _getTransportModeColor(_routeTransportRecommendations[index]!).withOpacity(0.1),
+                                          borderRadius: BorderRadius.circular(6),
+                                        ),
+                                        child: Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            Icon(
+                                              _getTransportModeIcon(_routeTransportRecommendations[index]!),
+                                              size: 12,
+                                              color: _getTransportModeColor(_routeTransportRecommendations[index]!),
+                                            ),
+                                            const SizedBox(width: 4),
+                                            Flexible(
+                                              child: Text(
+                                                _getTransportModeLabel(_routeTransportRecommendations[index]!),
+                                                style: TextStyle(
+                                                  fontSize: 10,
+                                                  fontWeight: FontWeight.w600,
+                                                  color: _getTransportModeColor(_routeTransportRecommendations[index]!),
+                                                ),
+                                                overflow: TextOverflow.ellipsis,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ],
                                   ],
                                 ),
                               ),
@@ -4988,6 +5147,72 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                                   ),
                                 ),
                               ],
+                            ],
+                            // Transport Mode Recommendation for Selected Route
+                            if (_routeTransportRecommendations.containsKey(_selectedRouteIndex)) ...[
+                              const SizedBox(height: 12),
+                              const Divider(),
+                              const SizedBox(height: 8),
+                              Container(
+                                padding: const EdgeInsets.all(12),
+                                decoration: BoxDecoration(
+                                  gradient: LinearGradient(
+                                    colors: [
+                                      _getTransportModeColor(_routeTransportRecommendations[_selectedRouteIndex]!).withOpacity(0.1),
+                                      _getTransportModeColor(_routeTransportRecommendations[_selectedRouteIndex]!).withOpacity(0.05),
+                                    ],
+                                    begin: Alignment.topLeft,
+                                    end: Alignment.bottomRight,
+                                  ),
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(
+                                    color: _getTransportModeColor(_routeTransportRecommendations[_selectedRouteIndex]!).withOpacity(0.3),
+                                    width: 1,
+                                  ),
+                                ),
+                                child: Row(
+                                  children: [
+                                    Container(
+                                      padding: const EdgeInsets.all(8),
+                                      decoration: BoxDecoration(
+                                        color: _getTransportModeColor(_routeTransportRecommendations[_selectedRouteIndex]!),
+                                        borderRadius: BorderRadius.circular(8),
+                                      ),
+                                      child: Icon(
+                                        _getTransportModeIcon(_routeTransportRecommendations[_selectedRouteIndex]!),
+                                        color: Colors.white,
+                                        size: 20,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 12),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            '${_getTransportModeLabel(_routeTransportRecommendations[_selectedRouteIndex]!)} would be good',
+                                            style: TextStyle(
+                                              fontSize: 14,
+                                              fontWeight: FontWeight.bold,
+                                              color: Colors.grey[900],
+                                            ),
+                                          ),
+                                          const SizedBox(height: 4),
+                                          Text(
+                                            _routeTransportReasoning[_selectedRouteIndex] ?? 'Best mode for this route',
+                                            style: TextStyle(
+                                              fontSize: 12,
+                                              color: Colors.grey[700],
+                                            ),
+                                            maxLines: 2,
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
                             ],
                             const SizedBox(height: 12),
                             // AI Optimization Toggle
