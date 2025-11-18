@@ -96,6 +96,8 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
   AIRouteRecommendation? _aiRouteRecommendation;
   List<HyperlocalBusinessInsight> _businessInsights = [];
   bool _isLoadingAIPrediction = false;
+  bool _isBottomSheetOpen = false; // Track if bottom sheet is currently open
+  DateTime? _lastBottomSheetOpenTime; // Track when bottom sheet was last opened
   
   AnimationController? _markerAnimationController;
   LatLng? _previousLocation;
@@ -148,6 +150,8 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     _routeUpdateTimer?.cancel();
     _trafficUpdateTimer?.cancel();
     _placesUpdateTimer?.cancel();
+    // Reset bottom sheet state
+    _isBottomSheetOpen = false;
     super.dispose();
   }
 
@@ -409,6 +413,9 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
   }
 
   Future<void> _addDropLocationMarker(LatLng position, {bool isDragging = false}) async {
+    // Ensure only one drop location exists - remove any existing ones first
+    _markers.removeWhere((marker) => marker.markerId.value == 'dropLocation');
+    
     // Snap to road
     if (!isDragging) {
       setState(() {
@@ -428,15 +435,19 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
       });
     }
     
-    _markers.removeWhere((marker) => marker.markerId.value == 'dropLocation');
+    // Update drop location in state (ensures only one exists)
+    setState(() {
+      _dropLocation = position;
+    });
     
+    // Add new marker (only one drop location allowed)
     _markers.add(
       Marker(
         markerId: const MarkerId('dropLocation'),
         position: position,
         infoWindow: InfoWindow(
           title: 'Destination',
-          snippet: _dropLocationAddress ?? 'Tap to remove',
+          snippet: _dropLocationAddress ?? 'Tap marker to remove',
         ),
         icon: BitmapDescriptor.defaultMarkerWithHue(
           BitmapDescriptor.hueRed,
@@ -447,7 +458,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
           _showRemoveDestinationDialog();
         },
         onDragEnd: (newPosition) async {
-          // Snap to road when dragging ends
+          // Update existing drop location (only one allowed)
           setState(() {
             _isSnappingLocation = true;
           });
@@ -464,6 +475,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
             _isSnappingLocation = false;
           });
           
+          // Update marker position (replaces previous one)
           await _addDropLocationMarker(snapped, isDragging: false);
           _fetchRoute(showAlternatives: true);
           
@@ -622,11 +634,9 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
           _trafficAlerts = alerts;
           _isLoadingPlaces = false;
         });
-        // Show bottom sheet if we have traffic alerts or business insights
+        // Show bottom sheet if we have traffic alerts or business insights (debounced)
         if (alerts.isNotEmpty || _businessInsights.isNotEmpty) {
-          Future.delayed(const Duration(milliseconds: 500), () {
-            if (mounted) _showAIInsightsBottomSheet();
-          });
+          _showBottomSheetIfNeeded();
         }
       }
     } catch (e) {
@@ -664,8 +674,8 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
           _aiPrediction = prediction;
           _isLoadingAIPrediction = false;
         });
-        // Show bottom sheet with all insights (AI, traffic, businesses)
-        _showAIInsightsBottomSheet();
+        // Show bottom sheet with all insights (AI, traffic, businesses) - debounced
+        _showBottomSheetIfNeeded();
       }
     } catch (e) {
       print('Error getting AI prediction: $e');
@@ -689,11 +699,9 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
         setState(() {
           _businessInsights = insights;
         });
-        // Show bottom sheet if we have business insights or traffic alerts
+        // Show bottom sheet if we have business insights or traffic alerts (debounced)
         if (insights.isNotEmpty || _trafficAlerts.isNotEmpty) {
-          Future.delayed(const Duration(milliseconds: 500), () {
-            if (mounted) _showAIInsightsBottomSheet();
-          });
+          _showBottomSheetIfNeeded();
         }
       }
     } catch (e) {
@@ -1013,7 +1021,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
   }
 
   Future<void> _onMapTap(LatLng position) async {
-    // If origin is not set, set it; otherwise set destination
+    // If origin is not set, set it; otherwise set/replace destination (only one drop point allowed)
     if (_originLocation == null) {
       setState(() {
         _originLocation = position;
@@ -1021,31 +1029,37 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
       await _addOriginLocationMarker(position);
       _fetchTrafficDataForLocation(position, isOrigin: true);
       _detectNearbyPlacesAndAlerts(position);
-    } else if (_dropLocation == null) {
-      setState(() {
-        _dropLocation = position;
-      });
-      await _addDropLocationMarker(position);
-      _fetchTrafficDataForLocation(position, isOrigin: false);
-      _detectNearbyPlacesAndAlerts(position);
-      
-      // Automatically fetch and display the route path
-      await _fetchRoute(showAlternatives: true);
-      
-      // Update real-time distance and ETA
-      if (_originLocation != null) {
-        final originLat = _originLocation!.latitude;
-        final originLng = _originLocation!.longitude;
-        _updateRealTimeDistanceAndETA(LatLng(originLat, originLng));
-            }
-      
-      // Smoothly animate camera to show the full path
-      await _animateToShowPath();
     } else {
-      // Both are set, replace destination
+      // Always replace drop location if one exists (only one drop point allowed)
+      final wasReplacing = _dropLocation != null;
+      
+      // Clear previous drop location data smoothly
+      if (wasReplacing) {
+        setState(() {
+          _dropLocation = null;
+          _snappedDropLocation = null;
+          _dropLocationAddress = null;
+          _destinationTrafficDataPoints = [];
+        });
+        // Remove previous marker
+        _markers.removeWhere((marker) => marker.markerId.value == 'dropLocation');
+        // Clear previous route
+        setState(() {
+          _routeDetails = null;
+          _alternativeRoutes = [];
+          _polylines.clear();
+        });
+        
+        // Show feedback that drop point is being replaced
+        _showSnackBar('Selecting new destination...');
+      }
+      
+      // Set new drop location
       setState(() {
         _dropLocation = position;
       });
+      
+      // Add new drop location marker with smooth animation
       await _addDropLocationMarker(position);
       _fetchTrafficDataForLocation(position, isOrigin: false);
       _detectNearbyPlacesAndAlerts(position);
@@ -1058,10 +1072,15 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
         final originLat = _originLocation!.latitude;
         final originLng = _originLocation!.longitude;
         _updateRealTimeDistanceAndETA(LatLng(originLat, originLng));
-            }
+      }
       
       // Smoothly animate camera to show the full path
       await _animateToShowPath();
+      
+      // Show success feedback
+      if (wasReplacing) {
+        _showSnackBar('Destination updated');
+      }
     }
   }
 
@@ -1242,12 +1261,26 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     try {
       final location = await _geocodingService.geocodeAddress(address);
       if (location != null) {
+        // Clear previous drop location if exists (only one allowed)
+        if (_dropLocation != null) {
+          setState(() {
+            _dropLocation = null;
+            _snappedDropLocation = null;
+            _dropLocationAddress = null;
+            _destinationTrafficDataPoints = [];
+            _routeDetails = null;
+            _alternativeRoutes = [];
+            _polylines.clear();
+          });
+          _markers.removeWhere((marker) => marker.markerId.value == 'dropLocation');
+        }
+        
         setState(() {
           _dropLocation = location;
           _dropLocationAddress = address;
         });
         
-        // Add destination marker
+        // Add destination marker (only one allowed)
         await _addDropLocationMarker(location);
         
         // Fetch traffic heatmap for destination
@@ -1259,6 +1292,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
         // Fetch route if origin is also set
         if (_originLocation != null || _currentLocation != null) {
           await _fetchRoute(showAlternatives: true);
+          await _animateToShowPath();
         }
       } else {
         _showSnackBar('Could not find the destination address. Please try again.');
@@ -1324,19 +1358,38 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
         final location = placeDetails['location'] as LatLng;
         final address = placeDetails['address'] as String? ?? description;
         
+        // Clear previous drop location if exists (only one allowed)
+        if (_dropLocation != null) {
+          setState(() {
+            _dropLocation = null;
+            _snappedDropLocation = null;
+            _dropLocationAddress = null;
+            _destinationTrafficDataPoints = [];
+            _routeDetails = null;
+            _alternativeRoutes = [];
+            _polylines.clear();
+          });
+          _markers.removeWhere((marker) => marker.markerId.value == 'dropLocation');
+        }
+        
         setState(() {
           _dropLocation = location;
           _dropLocationAddress = address;
         });
         
+        // Add destination marker (only one allowed)
         await _addDropLocationMarker(location);
         
         // Fetch traffic heatmap for destination
         _fetchTrafficDataForLocation(location, isOrigin: false);
         
+        // Detect nearby places and generate alerts for destination
+        _detectNearbyPlacesAndAlerts(location);
+        
         // Fetch route if origin is also set
         if (_originLocation != null || _currentLocation != null) {
           await _fetchRoute(showAlternatives: true);
+          await _animateToShowPath();
         }
       } else {
         _showSnackBar('Could not find the destination place. Please try again.');
@@ -1683,7 +1736,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
   }
 
   Future<void> _fitRoute() async {
-    if (_currentLocation == null || _dropLocation == null) return;
+    if (_currentLocation == null || _dropLocation == null || _routeDetails == null) return;
 
     final currentLat = _currentLocation!.latitude;
     final currentLng = _currentLocation!.longitude;
@@ -1751,11 +1804,16 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
   Future<void> _animateToShowPath() async {
     if (_currentLocation == null || _dropLocation == null) return;
     
-    // Wait a bit for route to be fetched
-    await Future.delayed(const Duration(milliseconds: 300));
+    // Only wait if route is not yet available, otherwise proceed immediately
+    if (_routeDetails == null) {
+      // Wait briefly for route to be fetched (reduced delay)
+      await Future.delayed(const Duration(milliseconds: 100));
+    }
     
-    // Fit the route to show the full path
-    await _fitRoute();
+    // Fit the route to show the full path (non-blocking)
+    _fitRoute().catchError((e) {
+      print('Error fitting route: $e');
+    });
   }
 
   void _rerouteIfNeeded(LatLng currentLocation) {
@@ -1988,18 +2046,29 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
   void _startNavigation() {
     if (_routeDetails == null) return;
     
+    // Close bottom sheet if open
+    if (_isBottomSheetOpen) {
+      Navigator.pop(context);
+      _isBottomSheetOpen = false;
+    }
+    
     setState(() {
       _isNavigating = true;
       _currentStepIndex = 0;
     });
     
-    // Start periodic route updates for live traffic data
-    _updateRoutePeriodically();
-    
-    // Move camera to navigation view
+    // Move camera to navigation view immediately (non-blocking)
     if (_currentLocation != null) {
-      _moveCameraToLocation(_currentLocation!, snappedLocation: _snappedCurrentLocation);
+      _moveCameraToLocation(_currentLocation!, snappedLocation: _snappedCurrentLocation).catchError((e) {
+        // Silently handle any camera errors
+        print('Camera movement error: $e');
+      });
     }
+    
+    // Start periodic route updates for live traffic data (async, non-blocking)
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _updateRoutePeriodically();
+    });
   }
 
   void _stopNavigation() {
@@ -2023,14 +2092,38 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     );
   }
 
-  /// Show AI Insights Bottom Sheet with all information
-  void _showAIInsightsBottomSheet() {
-    if (!mounted) return;
+  /// Show bottom sheet if needed (with debouncing to prevent multiple opens)
+  void _showBottomSheetIfNeeded() {
+    if (!mounted || _isBottomSheetOpen) return;
     
     // Don't show if we have no data to display
     if (_trafficAlerts.isEmpty && _businessInsights.isEmpty && _aiPrediction == null) {
       return;
     }
+    
+    // Debounce: Don't open if we just opened one recently (within 2 seconds)
+    final now = DateTime.now();
+    if (_lastBottomSheetOpenTime != null) {
+      final timeSinceLastOpen = now.difference(_lastBottomSheetOpenTime!);
+      if (timeSinceLastOpen.inSeconds < 2) {
+        return;
+      }
+    }
+    
+    _showAIInsightsBottomSheet();
+  }
+
+  /// Show AI Insights Bottom Sheet with all information
+  void _showAIInsightsBottomSheet() {
+    if (!mounted || _isBottomSheetOpen) return;
+    
+    // Don't show if we have no data to display
+    if (_trafficAlerts.isEmpty && _businessInsights.isEmpty && _aiPrediction == null) {
+      return;
+    }
+    
+    _isBottomSheetOpen = true;
+    _lastBottomSheetOpenTime = DateTime.now();
     
     // Show bottom sheet even if no AI prediction, to show traffic alerts and businesses
     showModalBottomSheet(
@@ -2038,6 +2131,11 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       enableDrag: true,
+      isDismissible: true,
+      onDismissed: () {
+        _isBottomSheetOpen = false;
+      },
+      useSafeArea: true,
       builder: (context) => DraggableScrollableSheet(
         initialChildSize: 0.6,
         minChildSize: 0.4,
@@ -2106,7 +2204,10 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                     ),
                     IconButton(
                       icon: Icon(Icons.close, color: Colors.grey[600]),
-                      onPressed: () => Navigator.pop(context),
+                      onPressed: () {
+                        _isBottomSheetOpen = false;
+                        Navigator.pop(context);
+                      },
                       padding: EdgeInsets.zero,
                       constraints: const BoxConstraints(),
                     ),
