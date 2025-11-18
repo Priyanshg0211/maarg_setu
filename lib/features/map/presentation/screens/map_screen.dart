@@ -3653,7 +3653,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
           ),
           
           // Search Bar and ETA/Distance Widget
-          if (!_isNavigating)
+          if (!_isNavigating && _dropLocation == null)
             SafeArea(
               child: Padding(
                 padding: const EdgeInsets.all(16.0),
